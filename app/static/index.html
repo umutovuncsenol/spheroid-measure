@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spheroid Review</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <strong class="brand">Spheroid Review</strong>
+  <span class="grp">
+    <select id="sessionSel" title="Open an existing session"></select>
+    <input id="newSession" placeholder="new session name" size="16">
+    <button id="btnNewSession">Create</button>
+  </span>
+  <span class="grp">
+    <label class="btn" title="Original files are copied unchanged into the session folder">Upload images
+      <input id="upload" type="file" multiple accept="image/*,.tif,.tiff" hidden></label>
+    <button id="btnDetectAll" title="Wells (where missing) + candidate objects for every image, in the background">Detect all images</button>
+    <span id="jobStatus" class="muted"></span>
+  </span>
+  <span class="grp"><label class="small">Reviewer <input id="reviewer" size="12" placeholder="your name"></label></span>
+  <span class="grp">
+    <button id="btnExport" title="Accepted objects -> Measurements sheet; everything else -> Review log">Export Excel</button>
+    <span id="exportLink"></span>
+  </span>
+  <span id="busy" class="muted" hidden>working…</span>
+  <span id="msg" class="msg"></span>
+</header>
+<main>
+  <aside id="left">
+    <div id="progress" class="progress"></div>
+    <ol id="imageList"></ol>
+  </aside>
+  <section id="center">
+    <div id="toolbar">
+      <span class="tools">
+        <button data-tool="select" title="Select / hover (V). Drag empty space to pan.">Select</button>
+        <button data-tool="well" title="Draw a rectangular well region; drag a corner to adjust">Well</button>
+        <button data-tool="scale" title="Set scale: draw a line along a known reference (scale bar)">Scale</button>
+        <button data-tool="brushAdd" title="Brush: add pixels to the selected object (B)">Brush +</button>
+        <button data-tool="brushErase" title="Brush: erase pixels from the selected object (E)">Brush −</button>
+        <button data-tool="polyNew" title="Draw a new manual object with the chosen shape (D)">Draw: new</button>
+        <button data-tool="polyAdd" title="Draw a shape and ADD it to the selected object">Draw +</button>
+        <button data-tool="polyErase" title="Draw a shape and ERASE it from the selected object">Draw −</button>
+        <select id="drawShape" title="Shape for the Draw tools (as in ImageJ): polygon = click vertices, double-click/Enter to finish; freehand = drag; ellipse / rectangle = drag a box (Shift: circle / square)">
+          <option value="polygon">polygon</option><option value="freehand">freehand</option>
+          <option value="ellipse">ellipse</option><option value="rectangle">rectangle</option></select>
+        <button data-tool="assign" title="Click a dashed part to assign it to the selected object; click an owned part to remove it">Assign parts</button>
+      </span>
+      <button id="btnUndo" title="Undo the last edit on this image (Ctrl+Z / ⌘Z)" disabled>↶ Undo</button>
+      <label>Brush r <input id="brushR" type="number" value="6" min="1" max="200" step="1" style="width:4em"> px</label>
+      <span class="zoom">
+        <button id="zOut">−</button><button id="zIn">+</button><button id="zFit">Fit</button><button id="z1">1:1</button>
+      </span>
+      <label><input id="tEnv" type="checkbox"> envelope</label>
+      <label title="orange: unassigned parts; purple: removed as wall/shadow shape"><input id="tParts" type="checkbox" checked> unassigned / wall-shape parts</label>
+      <label title="pixels that passed the cell threshold but were removed by a clean-up step: pink = wall band, blue = thin (opening), green = small. White outlines (shown with parts) = cut lines of a watershed split"><input id="tRemoved" type="checkbox"> removed pixels</label>
+      <label><input id="tFill" type="checkbox" checked> fill</label>
+      <span id="coords" class="muted"></span>
+    </div>
+    <div id="stage"><canvas id="cv"></canvas><div id="tip" hidden></div>
+      <div id="empty" class="empty">Create or open a session, then upload images.</div></div>
+    <div id="hint" class="muted"></div>
+  </section>
+  <aside id="right">
+    <div id="imgInfo"></div>
+    <div id="calBox" class="box"></div>
+    <div id="wellBox" class="box"></div>
+    <div id="refBox" class="box"></div>
+    <div id="objBox"></div>
+  </aside>
+</main>
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+:root { --bg:#f5f6f8; --panel:#fff; --line:#d9dde3; --ink:#1d2329; --muted:#6b7480; --acc:#1f6feb;
+  --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+details > summary { cursor:pointer; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
+body { margin:0; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:var(--ink); background:var(--bg);
+  height:100vh; display:flex; flex-direction:column; }
+header { display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding:6px 10px; background:var(--panel); border-bottom:1px solid var(--line); }
+.brand { font-size:15px; }
+.grp { display:flex; gap:6px; align-items:center; }
+button, .btn, select, input { font:inherit; }
+button, .btn { padding:3px 9px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; }
+button:hover, .btn:hover { border-color:#9aa4ae; }
+button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+button.ok { color:var(--ok); } button.bad { color:var(--bad); }
+.muted { color:var(--muted); }
+.msg { margin-left:auto; color:var(--warn); max-width:40vw; }
+.msg.err { color:var(--bad); }
+main { flex:1; display:grid; grid-template-columns: 230px 1fr 360px; min-height:0; }
+aside { background:var(--panel); overflow:auto; padding:8px; }
+#left { border-right:1px solid var(--line); }
+#right { border-left:1px solid var(--line); }
+#center { display:flex; flex-direction:column; min-width:0; }
+#toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:5px 8px; background:#fafbfc; border-bottom:1px solid var(--line); }
+.tools button { padding:3px 7px; }
+#stage { flex:1; position:relative; overflow:hidden; background:#2b2f33; }
+#cv { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; }
+#tip { position:absolute; pointer-events:none; background:rgba(20,24,28,.93); color:#fff; padding:7px 9px; border-radius:6px;
+  font-size:12px; max-width:480px; z-index:5; white-space:nowrap; }
+#tip table { border-collapse:collapse; } #tip td { padding:0 6px 0 0; } #tip .h { color:#9ecbff; font-weight:600; }
+.empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#ccd; font-size:15px; }
+#hint { padding:3px 8px; min-height:22px; border-top:1px solid var(--line); background:#fafbfc; }
+.progress { font-size:12px; margin-bottom:6px; }
+.bar { height:6px; background:#e7eaee; border-radius:3px; overflow:hidden; margin:3px 0; }
+.bar > i { display:block; height:100%; background:var(--ok); }
+#imageList { list-style:none; padding:0; margin:0; }
+#imageList li { padding:5px 6px; border:1px solid transparent; border-radius:6px; cursor:pointer; margin-bottom:3px; }
+#imageList li:hover { background:#f2f4f7; }
+#imageList li.cur { border-color:var(--acc); background:#eef4ff; }
+#imageList .fn { font-weight:600; word-break:break-all; font-size:12px; }
+.badge { display:inline-block; padding:0 5px; border-radius:8px; font-size:11px; background:#eef0f3; margin:1px 2px 1px 0; }
+.badge.ok { background:#dafbe1; color:var(--ok); } .badge.bad { background:#ffebe9; color:var(--bad); }
+.badge.warn { background:#fff8c5; color:var(--warn); } .badge.acc { background:#ddf4ff; color:#0969da; }
+.box { border:1px solid var(--line); border-radius:7px; padding:7px; margin:8px 0; }
+.box h4, #objBox h4 { margin:0 0 5px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+.row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:3px 0; }
+.card { border:1px solid var(--line); border-radius:7px; padding:6px 7px; margin:6px 0; }
+.card.sel { border-color:var(--acc); box-shadow:0 0 0 2px #1f6feb33; }
+.card .t { display:flex; justify-content:space-between; align-items:center; gap:4px; }
+.card table { width:100%; border-collapse:collapse; font-size:12px; margin-top:3px; }
+.card td { padding:1px 3px; } .card td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.card textarea { width:100%; font:inherit; font-size:12px; }
+.small { font-size:11px; }
+dialog { border:1px solid var(--line); border-radius:8px; padding:14px 16px; max-width:520px; }
+dialog label { display:block; margin:6px 0; }
+.warnline { color:var(--warn); }

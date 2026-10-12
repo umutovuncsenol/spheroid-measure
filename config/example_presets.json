@@ -1,0 +1,586 @@
+{
+ "_comment": "Presets for the three example images ONLY. Applied on upload when BOTH the exact filename and SHA-256 match; never applied to other images. Well rectangles were placed by hand in the v0 prototype (continuous pixel coordinates: x0,y0 = top-left pixel edge, x1,y1 = bottom-right pixel edge). The scale is an UNCONFIRMED estimate from automatic detection of the blue 500 µm bar (bar endpoints 28..328 px). These images were used to tune the segmentation profiles, so they must not be used to measure its accuracy.",
+ "images": [
+  {
+   "filename": "OVAL_50_600_D1_2_KUYU_1_1_1_1_1_1_1_1.jpg",
+   "sha256": "e39f3a87f2030d1cde9d68e1eb1e9c87f46dfcaa1f3ce7ede635a2a6eabc869f",
+   "profile": "pyramid_bright",
+   "wells": [
+    {
+     "well_id": "W1",
+     "polygon": [
+      [
+       0,
+       105
+      ],
+      [
+       285,
+       105
+      ],
+      [
+       285,
+       375
+      ],
+      [
+       0,
+       375
+      ]
+     ]
+    },
+    {
+     "well_id": "W2",
+     "polygon": [
+      [
+       537,
+       102
+      ],
+      [
+       832,
+       102
+      ],
+      [
+       832,
+       393
+      ],
+      [
+       537,
+       393
+      ]
+     ]
+    },
+    {
+     "well_id": "W3",
+     "polygon": [
+      [
+       1107,
+       90
+      ],
+      [
+       1402,
+       90
+      ],
+      [
+       1402,
+       383
+      ],
+      [
+       1107,
+       383
+      ]
+     ]
+    },
+    {
+     "well_id": "W4",
+     "polygon": [
+      [
+       1657,
+       82
+      ],
+      [
+       1920,
+       82
+      ],
+      [
+       1920,
+       390
+      ],
+      [
+       1657,
+       390
+      ]
+     ]
+    },
+    {
+     "well_id": "W5",
+     "polygon": [
+      [
+       0,
+       690
+      ],
+      [
+       285,
+       690
+      ],
+      [
+       285,
+       960
+      ],
+      [
+       0,
+       960
+      ]
+     ]
+    },
+    {
+     "well_id": "W6",
+     "polygon": [
+      [
+       548,
+       660
+      ],
+      [
+       840,
+       660
+      ],
+      [
+       840,
+       960
+      ],
+      [
+       548,
+       960
+      ]
+     ]
+    },
+    {
+     "well_id": "W7",
+     "polygon": [
+      [
+       1117,
+       652
+      ],
+      [
+       1402,
+       652
+      ],
+      [
+       1402,
+       945
+      ],
+      [
+       1117,
+       945
+      ]
+     ]
+    },
+    {
+     "well_id": "W8",
+     "polygon": [
+      [
+       1665,
+       638
+      ],
+      [
+       1920,
+       638
+      ],
+      [
+       1920,
+       938
+      ],
+      [
+       1665,
+       938
+      ]
+     ]
+    }
+   ],
+   "scale_estimate": {
+    "line": [
+     [
+      28.5,
+      1048.5
+     ],
+     [
+      328.5,
+      1048.5
+     ]
+    ],
+    "known_length": 500,
+    "unit": "µm",
+    "note": "Estimated in prototype from the burned-in 500 µm bar (≈300 px). Not confirmed by a user; physical values stay hidden until confirmed."
+   },
+   "used_for_tuning": true,
+   "image_flags": []
+  },
+  {
+   "filename": "YAMUK_50_600_D1_3_KUYU_2.jpg",
+   "sha256": "a038d2a37158f128e45066bf4a1a975a120936feea760ad1badf71031011d3ac",
+   "profile": "flat_floor_bright",
+   "wells": [
+    {
+     "well_id": "W1",
+     "polygon": [
+      [
+       57,
+       102
+      ],
+      [
+       228,
+       102
+      ],
+      [
+       228,
+       267
+      ],
+      [
+       57,
+       267
+      ]
+     ]
+    },
+    {
+     "well_id": "W2",
+     "polygon": [
+      [
+       607,
+       127
+      ],
+      [
+       790,
+       127
+      ],
+      [
+       790,
+       292
+      ],
+      [
+       607,
+       292
+      ]
+     ]
+    },
+    {
+     "well_id": "W3",
+     "polygon": [
+      [
+       1180,
+       150
+      ],
+      [
+       1353,
+       150
+      ],
+      [
+       1353,
+       320
+      ],
+      [
+       1180,
+       320
+      ]
+     ]
+    },
+    {
+     "well_id": "W4",
+     "polygon": [
+      [
+       1735,
+       160
+      ],
+      [
+       1905,
+       160
+      ],
+      [
+       1905,
+       350
+      ],
+      [
+       1735,
+       350
+      ]
+     ]
+    },
+    {
+     "well_id": "W5",
+     "polygon": [
+      [
+       30,
+       648
+      ],
+      [
+       198,
+       648
+      ],
+      [
+       198,
+       830
+      ],
+      [
+       30,
+       830
+      ]
+     ]
+    },
+    {
+     "well_id": "W6",
+     "polygon": [
+      [
+       590,
+       687
+      ],
+      [
+       758,
+       687
+      ],
+      [
+       758,
+       858
+      ],
+      [
+       590,
+       858
+      ]
+     ]
+    },
+    {
+     "well_id": "W7",
+     "polygon": [
+      [
+       1152,
+       712
+      ],
+      [
+       1325,
+       712
+      ],
+      [
+       1325,
+       885
+      ],
+      [
+       1152,
+       885
+      ]
+     ]
+    },
+    {
+     "well_id": "W8",
+     "polygon": [
+      [
+       1705,
+       735
+      ],
+      [
+       1878,
+       735
+      ],
+      [
+       1878,
+       905
+      ],
+      [
+       1705,
+       905
+      ]
+     ]
+    }
+   ],
+   "scale_estimate": {
+    "line": [
+     [
+      28.5,
+      1048.5
+     ],
+     [
+      328.5,
+      1048.5
+     ]
+    ],
+    "known_length": 500,
+    "unit": "µm",
+    "note": "Estimated in prototype from the burned-in 500 µm bar (≈300 px). Not confirmed by a user; physical values stay hidden until confirmed."
+   },
+   "used_for_tuning": true,
+   "image_flags": []
+  },
+  {
+   "filename": "PRAMT_50_600_D1_2_KUYU2.jpg",
+   "sha256": "45beebb38a7d5a6ae87cec94c4baf0afc96a5b596c3187c64f881e6973c1cd73",
+   "profile": "pyramid_dark",
+   "wells": [
+    {
+     "well_id": "W1",
+     "polygon": [
+      [
+       0,
+       132
+      ],
+      [
+       255,
+       132
+      ],
+      [
+       255,
+       432
+      ],
+      [
+       0,
+       432
+      ]
+     ]
+    },
+    {
+     "well_id": "W2",
+     "polygon": [
+      [
+       495,
+       120
+      ],
+      [
+       780,
+       120
+      ],
+      [
+       780,
+       402
+      ],
+      [
+       495,
+       402
+      ]
+     ]
+    },
+    {
+     "well_id": "W3",
+     "polygon": [
+      [
+       1065,
+       132
+      ],
+      [
+       1320,
+       132
+      ],
+      [
+       1320,
+       393
+      ],
+      [
+       1065,
+       393
+      ]
+     ]
+    },
+    {
+     "well_id": "W4",
+     "polygon": [
+      [
+       1620,
+       128
+      ],
+      [
+       1875,
+       128
+      ],
+      [
+       1875,
+       405
+      ],
+      [
+       1620,
+       405
+      ]
+     ]
+    },
+    {
+     "well_id": "W5",
+     "polygon": [
+      [
+       0,
+       698
+      ],
+      [
+       248,
+       698
+      ],
+      [
+       248,
+       975
+      ],
+      [
+       0,
+       975
+      ]
+     ]
+    },
+    {
+     "well_id": "W6",
+     "polygon": [
+      [
+       540,
+       698
+      ],
+      [
+       795,
+       698
+      ],
+      [
+       795,
+       960
+      ],
+      [
+       540,
+       960
+      ]
+     ]
+    },
+    {
+     "well_id": "W7",
+     "polygon": [
+      [
+       1088,
+       698
+      ],
+      [
+       1358,
+       698
+      ],
+      [
+       1358,
+       960
+      ],
+      [
+       1088,
+       960
+      ]
+     ]
+    },
+    {
+     "well_id": "W8",
+     "polygon": [
+      [
+       1643,
+       690
+      ],
+      [
+       1860,
+       690
+      ],
+      [
+       1860,
+       922
+      ],
+      [
+       1643,
+       922
+      ]
+     ]
+    }
+   ],
+   "scale_estimate": {
+    "line": [
+     [
+      28.5,
+      1048.5
+     ],
+     [
+      328.5,
+      1048.5
+     ]
+    ],
+    "known_length": 500,
+    "unit": "µm",
+    "note": "Estimated in prototype from the burned-in 500 µm bar (≈300 px). Not confirmed by a user; physical values stay hidden until confirmed."
+   },
+   "used_for_tuning": true,
+   "image_flags": [
+    {
+     "flag": "unreliable_segmentation",
+     "reason": "Prototype review (by the developer, not a researcher): automatic contours follow well-surface texture; no consistent object boundary was identified in the automatic output. Use manual annotation or mark wells as not measurable."
+    }
+   ]
+  }
+ ]
+}

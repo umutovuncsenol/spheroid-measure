@@ -20,3 +20,4 @@ model/
 # labeling files
 labels*.json
 review*.html
+.DS_Store

@@ -1,0 +1,137 @@
+{
+ "_comment": "Variants compared by scripts/eval_segmentation.py on the frozen regions in examples/eval_images/regions.json. 'profile' takes a profile from profiles.json; 'params' override it.",
+ "variants": [
+  {
+   "name": "A classical v0",
+   "profile": "pyramid_bright"
+  },
+  {
+   "name": "B adaptive: dark only",
+   "segmenter": "adaptive",
+   "grouping_from": "pyramid_bright",
+   "params": {
+    "bg_sigma_frac": 0.25,
+    "texture_frac": 0.03,
+    "wall_margin_frac": 0.06,
+    "wall_band_frac": 0.1,
+    "bg_quantile": 0.5,
+    "k_dark": 4.0,
+    "k_tex": 1000000000.0,
+    "k_tex_dark": 1.0,
+    "close_px": 2,
+    "open_frac": 0.012,
+    "min_component_frac": 0.0005,
+    "wall_band_frac_lowsolid": 0.5,
+    "wall_solidity": 0.6
+   },
+   "grouping": {
+    "seed_min_frac": 0.008,
+    "seed_rel_frac": 0.0,
+    "assign_dist_frac": 0.12
+   }
+  },
+  {
+   "name": "C adaptive: dark+texture, no illum. corr.",
+   "segmenter": "adaptive",
+   "grouping_from": "pyramid_bright",
+   "params": {
+    "bg_sigma_frac": 0.25,
+    "texture_frac": 0.03,
+    "wall_margin_frac": 0.06,
+    "wall_band_frac": 0.1,
+    "bg_quantile": 0.5,
+    "k_dark": 4.0,
+    "k_tex": 4.0,
+    "k_tex_dark": 1.0,
+    "close_px": 2,
+    "open_frac": 0.012,
+    "min_component_frac": 0.0005,
+    "illumination_correction": false,
+    "wall_band_frac_lowsolid": 0.5,
+    "wall_solidity": 0.6
+   },
+   "grouping": {
+    "seed_min_frac": 0.008,
+    "seed_rel_frac": 0.0,
+    "assign_dist_frac": 0.12
+   }
+  },
+  {
+   "name": "D adaptive: dark+texture",
+   "segmenter": "adaptive",
+   "grouping_from": "pyramid_bright",
+   "params": {
+    "bg_sigma_frac": 0.25,
+    "texture_frac": 0.03,
+    "wall_margin_frac": 0.06,
+    "wall_band_frac": 0.1,
+    "bg_quantile": 0.5,
+    "k_dark": 4.0,
+    "k_tex": 4.0,
+    "k_tex_dark": 1.0,
+    "close_px": 2,
+    "open_frac": 0.012,
+    "min_component_frac": 0.0005,
+    "wall_band_frac_lowsolid": 0.5,
+    "wall_solidity": 0.6
+   },
+   "grouping": {
+    "seed_min_frac": 0.008,
+    "seed_rel_frac": 0.0,
+    "assign_dist_frac": 0.12
+   }
+  },
+  {
+   "name": "E D + watershed split",
+   "segmenter": "adaptive",
+   "grouping_from": "pyramid_bright",
+   "params": {
+    "bg_sigma_frac": 0.25,
+    "texture_frac": 0.03,
+    "wall_margin_frac": 0.06,
+    "wall_band_frac": 0.1,
+    "bg_quantile": 0.5,
+    "k_dark": 4.0,
+    "k_tex": 4.0,
+    "k_tex_dark": 1.0,
+    "close_px": 2,
+    "open_frac": 0.012,
+    "min_component_frac": 0.0005,
+    "split_touching": true,
+    "wall_band_frac_lowsolid": 0.5,
+    "wall_solidity": 0.6
+   },
+   "grouping": {
+    "seed_min_frac": 0.008,
+    "seed_rel_frac": 0.0,
+    "assign_dist_frac": 0.12
+   }
+  },
+  {
+   "name": "F adaptive: dark+edge (gradient)",
+   "segmenter": "adaptive",
+   "grouping_from": "pyramid_bright",
+   "params": {
+    "bg_sigma_frac": 0.25,
+    "texture_frac": 0.03,
+    "wall_margin_frac": 0.06,
+    "wall_band_frac": 0.1,
+    "bg_quantile": 0.5,
+    "k_dark": 4.0,
+    "k_tex": 1000000000.0,
+    "k_tex_dark": 1.0,
+    "close_px": 2,
+    "open_frac": 0.012,
+    "min_component_frac": 0.0005,
+    "wall_band_frac_lowsolid": 0.5,
+    "wall_solidity": 0.6,
+    "k_edge": 4.0
+   },
+   "grouping": {
+    "seed_min_frac": 0.008,
+    "seed_rel_frac": 0.0,
+    "assign_dist_frac": 0.12
+   }
+  }
+ ]
+}

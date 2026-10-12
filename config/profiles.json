@@ -1,0 +1,202 @@
+{
+  "_comment": "Segmentation profiles. 'adaptive_*' profiles scale with the well size (fractions of the well side); classical profiles use fixed pixel values tuned BY EYE on the three original example images. None is validated against researcher-approved masks. Profiles describe image appearance, not filenames.",
+  "profiles": {
+    "adaptive_sparse": {
+      "description": "Scale-aware adaptive segmenter (illumination correction + per-well robust dark/texture thresholds). For wells where clusters cover LESS than about half of the well floor. Default for new images. Evaluated on 11 real images (docs/EVALUATION.md); not validated against researcher masks.",
+      "segmenter": "adaptive",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "illumination_correction": true,
+        "bg_sigma_frac": 0.25,
+        "texture_frac": 0.03,
+        "wall_margin_frac": 0.06,
+        "wall_band_frac": 0.1,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.6,
+        "wall_elong": 3,
+        "bg_quantile": 0.5,
+        "k_dark": 4.0,
+        "k_tex": 4.0,
+        "k_tex_dark": 1.0,
+        "close_px": 2,
+        "open_frac": 0.012,
+        "min_component_frac": 0.0005,
+        "split_touching": false
+      },
+      "grouping": {
+        "seed_min_frac": 0.008,
+        "seed_rel_frac": 0.0,
+        "assign_dist_frac": 0.12
+      }
+    },
+    "adaptive_filled": {
+      "description": "Same as adaptive_sparse, but the floor level is estimated from the lightest 25% of the well, for wells where a cluster covers MORE than about half of the floor (large / magnified spheroids). Selects too much on brightly lit pyramid wells.",
+      "segmenter": "adaptive",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "illumination_correction": true,
+        "bg_sigma_frac": 0.25,
+        "texture_frac": 0.03,
+        "wall_margin_frac": 0.06,
+        "wall_band_frac": 0.1,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.6,
+        "wall_elong": 3,
+        "bg_quantile": 0.25,
+        "k_dark": 4.0,
+        "k_tex": 4.0,
+        "k_tex_dark": 1.0,
+        "close_px": 2,
+        "open_frac": 0.012,
+        "min_component_frac": 0.0005,
+        "split_touching": false
+      },
+      "grouping": {
+        "seed_min_frac": 0.008,
+        "seed_rel_frac": 0.0,
+        "assign_dist_frac": 0.12
+      }
+    },
+    "adaptive_sparse_watershed": {
+      "description": "adaptive_sparse + watershed split of touching clusters with a narrow neck. Optional; the reviewer can re-merge pieces with Assign parts.",
+      "segmenter": "adaptive",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "illumination_correction": true,
+        "bg_sigma_frac": 0.25,
+        "texture_frac": 0.03,
+        "wall_margin_frac": 0.06,
+        "wall_band_frac": 0.1,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.6,
+        "wall_elong": 3,
+        "bg_quantile": 0.5,
+        "k_dark": 4.0,
+        "k_tex": 4.0,
+        "k_tex_dark": 1.0,
+        "close_px": 2,
+        "open_frac": 0.012,
+        "min_component_frac": 0.0005,
+        "split_touching": true,
+        "ws_min_distance_frac": 0.12,
+        "ws_min_radius_frac": 0.04,
+        "ws_neck_ratio": 0.7
+      },
+      "grouping": {
+        "seed_min_frac": 0.008,
+        "seed_rel_frac": 0.0,
+        "assign_dist_frac": 0.12
+      }
+    },
+    "pyramid_bright": {
+      "description": "Light grey pyramidal wells, dark clusters (tuned on the OVAL example). Classical segmenter with fixed pixel thresholds: only valid at the magnification it was tuned on.",
+      "segmenter": "classical",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "bg_mode": "median",
+        "bg_size_px": 121,
+        "darkness_threshold": 0.35,
+        "texture_threshold": 0.12,
+        "texture_window_px": 7,
+        "wall_margin_px": 18,
+        "wall_band_extra_px": 15,
+        "wall_elong": 3,
+        "wall_band_frac_elong": 0.4,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.5,
+        "wall_band_frac_any": 0.9,
+        "opening_radius_px": 2,
+        "fill_holes": true,
+        "min_component_px": 28,
+        "wall_filter_connectivity": 8
+      },
+      "grouping": {
+        "seed_min_px": 900,
+        "seed_rel_frac": 0.25,
+        "assign_dist_px": 36
+      }
+    },
+    "flat_floor_bright": {
+      "description": "Bright flat well floor with thick dark walls, large dark clusters (tuned on the YAMUK example). Classical segmenter with fixed pixel thresholds: only valid at the magnification it was tuned on.",
+      "segmenter": "classical",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "bg_mode": "max",
+        "bg_size_px": 160,
+        "darkness_threshold": 0.4,
+        "texture_threshold": 0.12,
+        "texture_window_px": 7,
+        "wall_margin_px": 8,
+        "wall_band_extra_px": 15,
+        "wall_elong": 3,
+        "wall_band_frac_elong": 0.4,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.5,
+        "wall_band_frac_any": 0.9,
+        "opening_radius_px": 2,
+        "fill_holes": true,
+        "min_component_px": 28,
+        "wall_filter_connectivity": 8
+      },
+      "grouping": {
+        "seed_min_px": 900,
+        "seed_rel_frac": 0.25,
+        "assign_dist_px": 36
+      }
+    },
+    "pyramid_dark": {
+      "description": "Dark pyramidal wells on a bright surface (PRAMT example). Automatic results on the example were judged unreliable in the prototype review; use manual annotation. Classical segmenter with fixed pixel thresholds: only valid at the magnification it was tuned on.",
+      "segmenter": "classical",
+      "params": {
+        "pre_smooth_sigma_px": 1.0,
+        "bg_mode": "median",
+        "bg_size_px": 121,
+        "darkness_threshold": 0.2,
+        "texture_threshold": 0.1,
+        "texture_window_px": 7,
+        "wall_margin_px": 10,
+        "wall_band_extra_px": 15,
+        "wall_elong": 3,
+        "wall_band_frac_elong": 0.4,
+        "wall_band_frac_lowsolid": 0.5,
+        "wall_solidity": 0.5,
+        "wall_band_frac_any": 0.9,
+        "opening_radius_px": 2,
+        "fill_holes": true,
+        "min_component_px": 28,
+        "wall_filter_connectivity": 8
+      },
+      "grouping": {
+        "seed_min_px": 900,
+        "seed_rel_frac": 0.25,
+        "assign_dist_px": 36
+      }
+    },
+    "cellpose": {
+      "description": "Fine-tuned Cellpose model (spheroid_v2, Hugging Face umutovuncsenol/sferoid). Trained on flat-well images; not for pyramid wells yet.",
+      "segmenter": "cellpose",
+      "params": {
+        "scale": 0.5,
+        "cellprob": 0.0,
+        "min_area_px": 400,
+        "merge_gap_px": 30,
+        "whole_image": true
+      },
+      "grouping": {
+        "seed_min_frac": 0.0003,
+        "seed_rel_frac": 0.0,
+        "assign_dist_frac": 0.0
+      }
+    }
+  },
+  "default_profile": "cellpose",
+  "measurement": {
+    "boundary_sigma_px": 1.0,
+    "envelope_radius_px": 18,
+    "_comment": "boundary_sigma_px: Gaussian sigma for the sub-pixel boundary used by ALL measurements. envelope_radius_px: closing radius for the optional outer envelope (bridges gaps up to ~2x this)."
+  },
+  "well_detection": {
+    "_comment": "Parameters for app/wells.py (lattice-1). Values not listed use the defaults in app/wells.py; the full parameter set used is stored with every image.",
+    "params": {}
+  }
+}

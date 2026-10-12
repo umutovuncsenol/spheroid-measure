@@ -1,7 +1,10 @@
 cellpose>=4.2
 opencv-python-headless
-scipy
-numpy
-pillow
-scikit-image
+scipy>=1.11
+numpy>=1.26
+pillow>=10.0
+scikit-image>=0.22
 huggingface_hub
+flask>=3.0
+openpyxl>=3.1
+roifile>=2026.9.22
