@@ -1,0 +1,7 @@
+cellpose>=4.2
+opencv-python-headless
+scipy
+numpy
+pillow
+scikit-image
+huggingface_hub

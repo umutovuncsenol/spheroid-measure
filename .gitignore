@@ -1,0 +1,22 @@
+# environments and caches
+.venv/
+__pycache__/
+
+# data and results (too large / private)
+*.npy
+*.jpg
+*.jpeg
+*.png
+*.zip
+sessions/
+sonuc*/
+results/
+yeni_set/
+finetune_out/
+
+# model weights live on Hugging Face, not in git
+model/
+
+# labeling files
+labels*.json
+review*.html
