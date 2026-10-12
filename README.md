@@ -3,7 +3,33 @@
 Detects spheroids (cell clusters) in microwell photos with a fine-tuned Cellpose model and measures them
 ImageJ-style (area, perimeter, circularity, Feret, ellipse fit, ...) in micrometers, using the scale bar in the image.
 
-## Setup
+Two ways to use it:
+
+| | what | start |
+|---|---|---|
+| **Review app** | browser app: upload images, detect, review/correct, export Excel | `./run.sh` (Windows: `run.bat`) |
+| **Command line** | batch detection + measurement, training | `python pipeline/spheroid_pipeline.py ...` |
+
+```
+app/        review app (Flask, opens at http://127.0.0.1:8765)
+config/     app profiles; the default profile "cellpose" uses the trained model
+pipeline/   command-line tools: detect + measure, review page, fine-tuning
+```
+
+## Review app
+
+```
+./run.sh
+```
+
+The first start creates `.venv` and installs `requirements.txt`. The browser opens `http://127.0.0.1:8765`.
+Create a session, upload images, press **Detect all images** (profile `cellpose`, no well detection needed),
+accept or fix objects, then **Export Excel**. The model is downloaded from Hugging Face on first detection.
+Session data is stored in `sessions/` (not in git).
+
+Note: the app does not read the scale bar automatically yet. Set the scale with the **Scale** tool, or use the command line tool, which does.
+
+## Setup (command line)
 
 ```
 python -m venv .venv
