@@ -7,6 +7,7 @@ const st = {
   session: null, summary: null, imageId: null, detail: null, img: null,
   view: { s: 1, tx: 0, ty: 0 }, tool: 'select', selected: null, hover: null,
   drag: null, poly: [], stroke: null, busy: false,
+  step: 'upload', phSel: new Set(), scaleLine: null, scaleDet: {},
 };
 const cv = $('#cv'), ctx = cv.getContext('2d');
 
@@ -61,6 +62,71 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushActive(true); });
 window.addEventListener('pagehide', () => flushActive(true));
 
+// ---------------------------------------------------------------- steps
+const STEPS = [['upload', 'Upload'], ['photos', 'Photos'], ['scale', 'Scale'], ['detect', 'Detect'], ['review', 'Review']];
+const visImgs = () => (st.summary ? st.summary.images.filter(i => !i.hidden) : []);
+const labText = lb => lb ? [lb.day ? 'D' + lb.day : '?', lb.shape || '?', lb.size || '?', lb.conc || '?'].join(' · ') : '';
+function stepInfo(k) {
+  const s = st.summary; if (!s) return { done: false, sub: '' };
+  const v = visImgs(), bl = s.blockers;
+  if (k === 'upload') return { done: s.images.length > 0, sub: s.images.length ? String(s.images.length) : '' };
+  if (k === 'photos') {
+    const need = v.filter(i => !i.labels_complete).length, hid = s.images.length - v.length;
+    return { done: v.length > 0 && !need, sub: need ? `${need} need labels` : (hid ? `${hid} hidden` : '') };
+  }
+  if (k === 'scale') return { done: s.scale.status === 'confirmed', sub: s.scale.status === 'confirmed' ? `${fmt(s.scale.um_per_px, 3)} µm/px` : '' };
+  if (k === 'detect') { const n = v.filter(i => i.processing === 'processed').length; return { done: v.length > 0 && n === v.length, sub: v.length ? `${n}/${v.length}` : '' }; }
+  return { done: !!bl.ready || (v.length > 0 && !bl.to_review && !bl.unprocessed.length), sub: bl.to_review ? `${bl.to_review} to review` : '' };
+}
+function renderStepper() {
+  $('#stepper').innerHTML = STEPS.map(([k, name], i) => {
+    const inf = stepInfo(k);
+    return `${i ? '<span class="sep">›</span>' : ''}<button data-step="${k}" class="${k === st.step ? 'cur' : ''} ${inf.done ? 'done' : ''}"><span class="n">${inf.done ? '✓' : i + 1}</span>${name}${inf.sub ? `<span class="sub">${esc(inf.sub)}</span>` : ''}</button>`;
+  }).join('');
+  document.querySelectorAll('#stepper button').forEach(b => b.onclick = () => go(b.dataset.step));
+}
+function blockText(bl) {
+  const p = [];
+  if (!bl.n_visible) p.push('no visible photos');
+  if (bl.missing_labels.length) p.push(`${bl.missing_labels.length} photo(s) need labels`);
+  if (bl.scale.length) p.push('scale not confirmed');
+  if (bl.unprocessed.length) p.push(`${bl.unprocessed.length} photo(s) not detected yet`);
+  if (bl.to_review) p.push(`${bl.to_review} object(s) still to review in ${bl.to_review_images.length} photo(s)`);
+  return p.join(' · ');
+}
+function renderExportBtn() {
+  const b = $('#btnExport'); b.hidden = st.step !== 'review';
+  if (!st.summary) return;
+  const bl = st.summary.blockers;
+  b.disabled = !bl.ready;
+  b.title = bl.ready ? 'Write the Excel file (one sheet per day + Analiz)' : 'Not ready: ' + blockText(bl);
+  $('#exportLink').hidden = st.step !== 'review';
+}
+function autoStep() {
+  const s = st.summary, v = visImgs(), bl = s.blockers;
+  if (!s.images.length) return 'upload';
+  if (v.some(i => !i.labels_complete)) return 'photos';
+  if (s.scale.status !== 'confirmed') return 'scale';
+  if (bl.unprocessed.length) return 'detect';
+  return 'review';
+}
+async function go(step) {
+  if (!st.session) return msg('Create or open a session first', true);
+  st.step = step; document.body.dataset.step = step; st.tool === 'scale' && step !== 'scale' && setTool('select');
+  $('#tip').hidden = true;
+  if (step === 'scale' || step === 'review') {
+    await refreshSummary();
+    const v = visImgs();
+    let cur = v.find(i => i.image_id === st.imageId);
+    if (!cur && v.length) cur = (step === 'review' && v.find(i => i.objects.unreviewed)) || v[0];
+    if (cur) await openImage(cur.image_id); else { st.detail = null; $('#empty').hidden = false; $('#empty').textContent = 'No visible photos.'; render(); }
+    if (step === 'scale') { setTool('select'); } else setTool(st.tool === 'scale' ? 'select' : st.tool);
+    resize(); fit();
+    if (step === 'scale' && st.detail) autoDetectScale();
+  } else await refreshSummary();
+  renderStepper(); renderExportBtn();
+}
+
 // ---------------------------------------------------------------- sessions
 async function loadSessions(select) {
   const j = await api('GET', '/api/sessions');
@@ -71,11 +137,10 @@ async function loadSessions(select) {
 async function openSession(name) {
   if (!name) return;
   flushActive();
-  st.session = name; st.imageId = null; st.detail = null; st.selected = null;
+  st.session = name; st.imageId = null; st.detail = null; st.selected = null; st.phSel = new Set(); st.scaleLine = null; st.scaleDet = {};
   localStorage.setItem('lastSession', name);
   await refreshSummary();
-  const first = st.summary.images.find(i => !i.review_done) || st.summary.images[0];
-  if (first) await openImage(first.image_id); else render();
+  await go(autoStep());
 }
 $('#sessionSel').onchange = e => openSession(e.target.value);
 $('#btnNewSession').onclick = async () => {
@@ -83,42 +148,47 @@ $('#btnNewSession').onclick = async () => {
   await api('POST', '/api/sessions', { name: n }); await loadSessions(n); $('#newSession').value = ''; openSession(n);
 };
 
-// ---------------------------------------------------------------- summary / image list
+// ---------------------------------------------------------------- summary / photo list
 async function refreshSummary() {
   st.summary = await api('GET', S('/summary'));
-  const p = st.summary.progress;
-  $('#progress').innerHTML = `<b>Session:</b> ${esc(st.summary.name)}<br>
-    Images reviewed: ${p.images_reviewed}/${p.images_total}
-    <div class="bar"><i style="width:${p.images_total ? 100 * p.images_reviewed / p.images_total : 0}%"></i></div>
-    Objects: ${p.objects_total} (${p.objects_unreviewed} unreviewed)`;
-  $('#imageList').innerHTML = st.summary.images.map((im, i) => {
-    const o = im.objects;
-    const b = [];
-    b.push(im.processing === 'processed' ? `<span class="badge">${o.total} obj</span>` :
-      `<span class="badge warn">${esc(im.processing)}</span>`);
-    if (o.accepted) b.push(`<span class="badge ok">${o.accepted} ✓</span>`);
-    if (o.rejected) b.push(`<span class="badge bad">${o.rejected} ✗</span>`);
-    if (o.unreviewed) b.push(`<span class="badge warn">${o.unreviewed} ?</span>`);
-    if (im.wells_status === 'failed') b.push('<span class="badge bad">wells: detection failed</span>');
-    else if (im.wells_status === 'none') b.push('<span class="badge warn">no wells</span>');
-    b.push(im.calibration === 'confirmed' ? '<span class="badge ok">scale ✓</span>' : `<span class="badge warn">scale ${im.calibration}</span>`);
-    if (im.flags.length) b.push(`<span class="badge bad">${im.flags.map(esc).join(', ')}</span>`);
-    if (im.review_done) b.push('<span class="badge acc">reviewed</span>');
-    return `<li data-id="${im.image_id}" class="${im.image_id === st.imageId ? 'cur' : ''}">
-      <div class="fn">${i + 1}. ${esc(im.original_filename)}</div>
-      <div class="small muted">${im.image_id} · ${im.width}×${im.height} · ${im.n_grid_cells ? (im.n_grid_cells === im.n_wells ? `${im.n_wells} grid cells (not wells)` : `${im.n_wells} regions, ${im.n_grid_cells} grid cells`) : `${im.n_wells} wells`}</div><div>${b.join('')}</div></li>`;
-  }).join('');
-  for (const li of document.querySelectorAll('#imageList li')) li.onclick = () => openImage(li.dataset.id);
-  const job = st.summary.job;
-  $('#jobStatus').textContent = job.running ? `Detecting ${job.done}/${job.total}…` :
-    (job.finished ? `Last batch: ${job.done}/${job.total} done${job.errors.length ? ', ' + job.errors.length + ' errors' : ''}` : '');
+  const p = st.summary.progress, v = visImgs();
+  const done = v.filter(i => i.reviewed).length;
+  $('#progress').innerHTML = `<b>${esc(st.summary.name)}</b><br>Photos reviewed: ${done}/${v.length}
+    <div class="bar"><i style="width:${v.length ? 100 * done / v.length : 0}%"></i></div>
+    To review: ${st.summary.blockers.to_review} object(s)`;
+  renderImageList();
+  if (st.step === 'photos') renderPhotos();
+  if (st.step === 'detect') renderDetect();
+  if (st.step === 'upload') renderUploadInfo();
+  renderStepper(); renderExportBtn();
 }
+function renderImageList() {
+  const only = $('#onlyTodo').checked && st.step === 'review';
+  const list = visImgs().filter(im => !only || im.objects.unreviewed || im.processing !== 'processed');
+  $('#imageList').innerHTML = list.map((im, i) => {
+    const o = im.objects, b = [];
+    if (st.step === 'review') {
+      b.push(im.processing === 'processed' ? `<span class="badge">${o.total} obj</span>` : `<span class="badge warn">${esc(im.processing)}</span>`);
+      if (o.accepted) b.push(`<span class="badge ok">${o.accepted} ✓</span>`);
+      if (o.rejected) b.push(`<span class="badge bad">${o.rejected} ✗</span>`);
+      if (o.unreviewed) b.push(`<span class="badge warn">${o.unreviewed} to review</span>`);
+      if (im.reviewed) b.push('<span class="badge acc">done</span>');
+    } else b.push(im.labels_complete ? '' : '<span class="badge warn">needs labels</span>');
+    return `<li data-id="${im.image_id}" class="${im.image_id === st.imageId ? 'cur' : ''}">
+      <div class="fn">${esc(im.original_filename)}</div>
+      <div class="small muted">${esc(labText(im.labels))}</div><div>${b.join('')}</div></li>`;
+  }).join('') || '<li class="muted">No photos.</li>';
+  for (const li of document.querySelectorAll('#imageList li[data-id]')) li.onclick = () => openImage(li.dataset.id);
+}
+$('#onlyTodo').onchange = renderImageList;
 
 async function openImage(id, keepView) {
   const changed = id !== st.imageId;
-  st.imageId = id; if (changed) { st.selected = null; st.poly = []; st.hover = null; $('#tip').hidden = true; }
+  st.imageId = id; if (changed) { st.selected = null; st.poly = []; st.hover = null; $('#tip').hidden = true; st.scaleLine = null; }
   if (changed) { flushActive(); api('POST', S(`/image/${id}/view`)).catch(() => {}); }
-  st.detail = await api('GET', S(`/image/${id}`));
+  let detail = await api('GET', S(`/image/${id}`));
+  if (!detail.image.wells.length) { await api('POST', S(`/image/${id}/whole_image`)); detail = await api('GET', S(`/image/${id}`)); }  // one hidden whole-image region
+  st.detail = detail;
   const ak = st.session + '/' + id;
   if (act.total[ak] === undefined) act.total[ak] = st.detail.image.active_review_s || 0;
   if (changed || !st.img) {
@@ -131,12 +201,198 @@ async function openImage(id, keepView) {
   if (st.selected && !st.detail.objects.some(o => o.object_id === st.selected)) st.selected = null;
   updateUndo();
   $('#empty').hidden = true;
-  renderPanels(); render();
+  if (st.step === 'scale') { renderScale(); if (changed) autoDetectScale(); }
+  else renderPanels();
+  render();
 }
 async function reload() {
   st.pending = (st.pending || 0) + 1; $('#busy').hidden = false;
   try { await openImage(st.imageId, true); await refreshSummary(); }
   finally { st.pending--; if (!st.pending) $('#busy').hidden = true; }
+}
+
+// ---------------------------------------------------------------- 1 · upload
+function renderUploadInfo() {
+  const n = st.summary ? st.summary.images.length : 0;
+  $('#uploadInfo').innerHTML = n ? `<div class="panelcard"><b>${n}</b> photo(s) in this session. <button class="primary" id="toPhotos">Continue to Photos →</button></div>` : '';
+  const b = $('#toPhotos'); if (b) b.onclick = () => go('photos');
+}
+async function uploadFiles(files) {
+  if (!st.session) return msg('Create or open a session first', true);
+  files = [...files].filter(f => /\.(jpe?g|png|tiff?|bmp)$/i.test(f.name)); if (!files.length) return msg('No image files found', true);
+  for (let i = 0; i < files.length; i += 10) {           // small chunks keep memory and request size low
+    const fd = new FormData(); files.slice(i, i + 10).forEach(f => fd.append('files', f, f.name)); fd.append('whole_region', '1');
+    $('#uploadStatus').textContent = `Uploading ${Math.min(i + 10, files.length)}/${files.length}…`;
+    await api('POST', S('/upload'), fd, true);
+  }
+  $('#uploadStatus').textContent = ''; await refreshSummary();
+  msg(`${files.length} photo(s) uploaded`);
+  await go('photos');
+}
+$('#upload').onchange = async e => { const f = [...e.target.files]; e.target.value = ''; await uploadFiles(f); };
+$('#uploadDir').onchange = async e => { const f = [...e.target.files]; e.target.value = ''; await uploadFiles(f); };
+{
+  const d = $('#drop');
+  ['dragenter', 'dragover'].forEach(ev => d.addEventListener(ev, e => { e.preventDefault(); d.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => d.addEventListener(ev, e => { e.preventDefault(); d.classList.remove('over'); }));
+  d.addEventListener('drop', e => uploadFiles(e.dataTransfer.files));
+}
+
+// ---------------------------------------------------------------- 2 · photos (labels, hide)
+function renderPhotos() {
+  const s = st.summary; if (!s) return;
+  const showHidden = $('#phHidden').checked, needs = $('#phNeeds').checked;
+  const all = s.images, v = visImgs(), need = v.filter(i => !i.labels_complete).length;
+  $('#phSummary').textContent = `${all.length} photo(s) · ${all.length - v.length} hidden · ${need} need labels. Hidden photos are kept but skipped by detection, review and Excel.`;
+  let shown = all.filter(i => (showHidden || !i.hidden) && (!needs || (!i.labels_complete && !i.hidden)));
+  const sel = st.phSel = new Set([...st.phSel].filter(id => shown.some(i => i.image_id === id)));
+  const opt = (vals, cur) => '<option value="">—</option>' + vals.map(x => `<option ${String(x) === String(cur) ? 'selected' : ''}>${x}</option>`).join('');
+  $('#phGrid').innerHTML = shown.map(im => {
+    const lb = im.labels, miss = k => lb[k] == null ? 'miss' : '';
+    return `<div class="pcard ${!im.labels_complete && !im.hidden ? 'need' : ''} ${sel.has(im.image_id) ? 'sel' : ''} ${im.hidden ? 'hid' : ''}" data-id="${im.image_id}">
+      <img loading="lazy" src="${S('/image/' + im.image_id + '/thumb')}" alt="">
+      <div class="top"><label class="small"><input type="checkbox" data-pick ${sel.has(im.image_id) ? 'checked' : ''}></label>
+        <button class="small" data-hide="${im.hidden ? 0 : 1}">${im.hidden ? 'Restore' : 'Hide'}</button></div>
+      <div class="fn">${esc(im.original_filename)}</div>
+      <div class="lab">
+        <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + [1, 3, 5, 7].map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
+        <select data-k="shape" class="${miss('shape')}" title="Shape">${'<option value="">Shape —</option>' + ['Piramit', 'Oval', 'Yamuk'].map(x => `<option ${lb.shape === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
+        <select data-k="size" class="${miss('size')}" title="Well size">${'<option value="">Well size —</option>' + [600, 400, 200].map(x => `<option value="${x}" ${lb.size === x ? 'selected' : ''}>Well ${x}</option>`).join('')}</select>
+        <select data-k="conc" class="${miss('conc')}" title="Concentration">${'<option value="">Conc. —</option>' + [50, 100, 150, 200].map(x => `<option value="${x}" ${lb.conc === x ? 'selected' : ''}>Conc. ${x}</option>`).join('')}</select>
+      </div></div>`;
+  }).join('') || '<div class="muted">Nothing to show.</div>';
+  $('#phSel').textContent = `${sel.size} selected`;
+  $('#phAll').checked = shown.length > 0 && sel.size === shown.length;
+  document.querySelectorAll('#phGrid .pcard').forEach(card => {
+    const id = card.dataset.id;
+    const pick = (on) => { if (on === undefined) on = !st.phSel.has(id); on ? st.phSel.add(id) : st.phSel.delete(id); renderPhotos(); };
+    card.querySelector('[data-pick]').onchange = e => pick(e.target.checked);
+    card.querySelector('img').onclick = () => pick();
+    card.querySelector('[data-hide]').onclick = async e => {
+      await api('PUT', S('/hidden'), { image_ids: [id], hidden: e.target.dataset.hide === '1' }); st.phSel.delete(id); refreshSummary();
+    };
+    card.querySelectorAll('select[data-k]').forEach(sl => sl.onchange = async () => {
+      const k = sl.dataset.k; await api('PUT', S('/labels'), { image_ids: [id], labels: { [k]: sl.value === '' ? null : sl.value } }); refreshSummary();
+    });
+  });
+}
+$('#phAll').onchange = e => {
+  const showHidden = $('#phHidden').checked, needs = $('#phNeeds').checked;
+  const shown = st.summary.images.filter(i => (showHidden || !i.hidden) && (!needs || (!i.labels_complete && !i.hidden)));
+  st.phSel = e.target.checked ? new Set(shown.map(i => i.image_id)) : new Set(); renderPhotos();
+};
+$('#phHidden').onchange = renderPhotos; $('#phNeeds').onchange = renderPhotos;
+$('#bApply').onclick = async () => {
+  const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
+  const labels = {};
+  for (const [id, k] of [['bDay', 'day'], ['bShape', 'shape'], ['bSize', 'size'], ['bConc', 'conc']]) if ($('#' + id).value) labels[k] = $('#' + id).value;
+  if (!Object.keys(labels).length) return msg('Choose at least one label to apply.', true);
+  await api('PUT', S('/labels'), { image_ids: ids, labels }); msg(`Labels set on ${ids.length} photo(s).`);
+  ['bDay', 'bShape', 'bSize', 'bConc'].forEach(id => $('#' + id).value = ''); refreshSummary();
+};
+$('#bHide').onclick = async () => {
+  const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
+  await api('PUT', S('/hidden'), { image_ids: ids, hidden: true }); st.phSel = new Set();
+  msg(`${ids.length} photo(s) hidden. Tick "show hidden" to restore them.`); refreshSummary();
+};
+
+// ---------------------------------------------------------------- 3 · scale
+async function autoDetectScale() {
+  const id = st.imageId; if (!id) return;
+  let r = st.scaleDet[id];
+  if (!r) { try { r = st.scaleDet[id] = await api('POST', S(`/image/${id}/detect_scale`)); } catch (e) { r = { found: false, reason: 'detection failed' }; } }
+  if (id !== st.imageId) return;
+  if (r.found && !st.scaleLine) st.scaleLine = { line: r.line, source: 'auto', known: r.known_length, unit: r.unit, bbox: r.bbox };
+  renderScale(); render();
+  if (r.found && st.scaleLine && st.scaleLine.bbox && st.scaleLine.source === 'auto') focusOn(r.bbox);
+}
+function focusOn(b) {   // zoom to the bar so the researcher can check its ends
+  const r = cv.getBoundingClientRect(), pad = 60;
+  const w = b[2] - b[0] + 2 * pad, h = Math.max(b[3] - b[1] + 2 * pad, 120);
+  const s = Math.min(r.width / w, r.height / h, 4);
+  st.view = { s, tx: r.width / 2 - (b[0] + b[2]) / 2 * s, ty: r.height / 2 - (b[1] + b[3]) / 2 * s }; render();
+}
+const sLen = l => Math.hypot(l.line[1][0] - l.line[0][0], l.line[1][1] - l.line[0][1]);
+function renderScale() {
+  const d = st.detail; if (!d) return;
+  const sc = st.summary.scale, im = d.image, L = st.scaleLine, det = st.scaleDet[im.image_id];
+  const conf = sc.status === 'confirmed';
+  const odd = visImgs().filter(i => i.width !== im.width || i.height !== im.height).length;
+  let h = `<h3 style="margin:2px 0 6px">3 · Scale</h3>
+    <div class="small muted">Pick <b>one</b> photo that shows the scale bar (list on the left). Check the line, confirm — the same scale is used for <b>all</b> photos.</div>`;
+  if (conf) h += `<div class="res"><b>Confirmed:</b> ${fmt(sc.um_per_px, 5)} µm/px<br><span class="small">line ${fmt(sc.known_length ? Math.hypot(sc.line[1][0] - sc.line[0][0], sc.line[1][1] - sc.line[0][1]) : 0, 1)} px = ${fmt(sc.known_length, 0)} ${esc(sc.unit)} · taken from ${sc.source_image_id}${sc.different_size.length ? ` · <span class="warnline">${sc.different_size.length} photo(s) have another pixel size</span>` : ''}</span></div>`;
+  if (det && det.found) h += `<div class="small"><span class="badge ok">scale bar found</span> ${det.n_ticks === 11 ? '11 tick marks' : 'bar ends'} · ${fmt(det.length_px, 1)} px (assuming ${det.known_length} ${esc(det.unit)}). Check both ends, then confirm.</div>`;
+  else if (det) h += `<div class="small"><span class="badge warn">no scale bar found automatically</span> ${esc(det.reason || '')} Draw the line by hand: tool “Draw line by hand”, drag from one end of the bar to the other (Shift = horizontal).</div>`;
+  else h += '<div class="small muted">Looking for the scale bar…</div>';
+  if (L) {
+    const len = +(L.known ?? 500), um = len * ({ 'µm': 1, mm: 1000, nm: 0.001 }[L.unit || 'µm']) / sLen(L);
+    h += `<div class="box"><div class="row">Line length <b>${fmt(sLen(L), 1)} px</b> <span class="small muted">(${L.source === 'auto' ? 'detected' : 'drawn by hand'}; drag an end to adjust)</span></div>
+      <div class="row">equals <input id="slLen" type="number" step="any" min="0" value="${len}" style="width:6em"> <select id="slUnit"><option ${L.unit === 'µm' || !L.unit ? 'selected' : ''}>µm</option><option ${L.unit === 'mm' ? 'selected' : ''}>mm</option><option ${L.unit === 'nm' ? 'selected' : ''}>nm</option></select>
+        <span class="small muted">(the bar is assumed to be 500 µm — change it if yours differs)</span></div>
+      <div class="res ${len > 0 ? '' : 'no'}" id="slRes"><b>${len > 0 ? fmt(um, 5) : '—'} µm per pixel</b></div>
+      ${odd ? `<div class="small warnline">${odd} photo(s) have a different pixel size than this one. The scale is only valid for photos taken with the same objective and not resized.</div>` : ''}
+      <label class="row small"><input type="checkbox" id="slCompat"> All photos of this session have the same magnification and were not resized differently.</label>
+      <div class="row"><button class="primary" id="slConfirm" disabled>Confirm scale for all photos</button></div></div>`;
+  }
+  h += `<div class="row"><button id="slAgain">Detect again</button>${conf ? '<button id="slNext" class="primary">Next: Detect →</button>' : ''}</div>`;
+  $('#scalePanel').innerHTML = h;
+  const upd = () => { const ok = L && +$('#slLen').value > 0 && $('#slCompat').checked; $('#slConfirm').disabled = !ok; };
+  if (L) {
+    $('#slLen').oninput = () => { L.known = +$('#slLen').value; upd(); scaleNumbers(); };
+    $('#slUnit').onchange = () => { L.unit = $('#slUnit').value; renderScale(); };
+    $('#slCompat').onchange = upd;
+    $('#slConfirm').onclick = async () => {
+      await api('POST', S('/scale'), { line: L.line, known_length: +$('#slLen').value, unit: $('#slUnit').value, source_image_id: st.imageId });
+      msg('Scale confirmed for all photos. Measurements are re-calculated with it.'); st.scaleLine = null; await reload(); renderScale();
+    };
+  }
+  $('#slAgain').onclick = () => { delete st.scaleDet[st.imageId]; st.scaleLine = null; renderScale(); autoDetectScale(); };
+  const nx = $('#slNext'); if (nx) nx.onclick = () => go('detect');
+}
+function scaleNumbers() {
+  const L = st.scaleLine, el = $('#slRes'); if (!L || !el) return;
+  const len = +$('#slLen').value, um = len * ({ 'µm': 1, mm: 1000, nm: 0.001 }[$('#slUnit').value]) / sLen(L);
+  el.className = 'res' + (len > 0 ? '' : ' no'); el.innerHTML = `<b>${len > 0 ? fmt(um, 5) : '—'} µm per pixel</b>`;
+}
+
+// ---------------------------------------------------------------- 4 · detect
+function renderDetect() {
+  const s = st.summary; if (!s) return;
+  const v = visImgs(), job = s.job, n = v.filter(i => i.processing === 'processed').length;
+  const err = v.filter(i => i.processing === 'error' || i.processing === 'needs_wells').length;
+  const profiles = st.config ? Object.keys(st.config.profiles) : [];
+  const cur = v.length ? v[0].profile : '';
+  $('#detPanel').innerHTML = `<div class="panelcard">
+    <div class="stat"><div><b>${v.length}</b>photos to detect</div><div><b>${n}</b>done</div><div><b>${v.length - n}</b>waiting</div>${err ? `<div><b style="color:var(--bad)">${err}</b>failed</div>` : ''}</div>
+    ${job.running ? `<div class="big">Detecting ${job.done}/${job.total}… <span class="muted small">${esc(job.current || '')}</span></div><div class="bar"><i style="width:${job.total ? 100 * job.done / job.total : 0}%"></i></div>` :
+      `<div class="row"><button class="primary" id="detGo">${n ? 'Detect again (all photos)' : 'Detect all photos'}</button>
+        ${n === v.length && v.length ? '<button id="detNext" class="primary">Next: Review →</button>' : ''}
+        ${job.finished ? `<span class="muted small">Last run: ${job.done}/${job.total}${job.errors.length ? ', ' + job.errors.length + ' error(s)' : ''}</span>` : ''}</div>`}
+    <div class="small muted">Model: <b>${esc(cur)}</b>. Hidden photos are skipped. Objects you already approved, rejected, edited or drew are kept when you detect again.</div>
+    <details style="margin-top:6px"><summary>Advanced</summary>
+      <div class="row">Model for all photos <select id="detProf">${profiles.map(p => `<option ${p === cur ? 'selected' : ''}>${p}</option>`).join('')}</select> <button id="detProfSet" class="small">Use</button></div>
+      <div class="small muted">${esc(((st.config && st.config.profiles[cur]) || {}).description || '')}</div></details></div>`;
+  $('#detList').innerHTML = v.map(im => `<div class="listrow"><span class="fn">${esc(im.original_filename)} <span class="muted small">${esc(labText(im.labels))}</span></span>
+    ${im.processing === 'processed' ? `<span class="badge ok">${im.objects.total} object(s)</span>` : `<span class="badge ${im.processing === 'error' || im.processing === 'needs_wells' ? 'bad' : 'warn'}">${esc(im.processing)}</span>`}
+    <button class="small" data-rerun="${im.image_id}" ${job.running ? 'disabled' : ''}>${im.processing === 'processed' ? 'Re-run' : 'Detect'}</button></div>`).join('');
+  const go1 = $('#detGo'); if (go1) go1.onclick = async () => {
+    if (n && !confirm('Detect again on all photos? Unreviewed, unedited automatic objects are replaced; approved, rejected, edited and drawn objects are kept.')) return;
+    await api('POST', S('/process_all'), { image_ids: v.map(i => i.image_id), whole_region: true }); pollJob();
+  };
+  const nx = $('#detNext'); if (nx) nx.onclick = () => go('review');
+  const ps = $('#detProfSet'); if (ps) ps.onclick = async () => {
+    await api('PUT', S('/profile_many'), { image_ids: s.images.map(i => i.image_id), profile: $('#detProf').value }); msg('Model set for all photos.'); refreshSummary();
+  };
+  document.querySelectorAll('[data-rerun]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.rerun; b.disabled = true; msg('Detecting…');
+    const p = await api('POST', S(`/image/${id}/process`), { whole_region: true });
+    msg(p.status === 'processed' ? `Done: ${p.new_objects} new object(s)` : p.message || p.status, p.status !== 'processed'); refreshSummary();
+  });
+}
+async function pollJob() {
+  const j = await api('GET', S('/job'));
+  await refreshSummary();
+  if (j.running) setTimeout(pollJob, 1000); else msg(`Detection finished: ${j.done}/${j.total}${j.errors.length ? ', ' + j.errors.length + ' error(s)' : ''}`, j.errors.length > 0);
 }
 
 // ---------------------------------------------------------------- view transform
@@ -180,18 +436,7 @@ function render() {
   ctx.imageSmoothingEnabled = v.s < 2;
   ctx.drawImage(st.img, v.tx, v.ty, st.img.naturalWidth * v.s, st.img.naturalHeight * v.s);
   const d = st.detail;
-  // wells
-  ctx.lineWidth = 1.5; ctx.font = '12px sans-serif';
-  for (const w of d.image.wells) {
-    const weak = wellWeak(w);
-    const wc = w.no_measurable_object ? '#ff8a8a' : (weak ? '#ff9f1a' : '#58a6ff');
-    ctx.strokeStyle = wc; ctx.setLineDash([6, 4]);
-    ctx.stroke(pathOf([w.polygon])); ctx.setLineDash([]);
-    const [a, b] = toScr(w.polygon[0][0], w.polygon[0][1]);
-    const tag = w.detection && w.detection.grid_cell ? '' : weak;   // grid cells: G-ID only (the panel explains)
-    ctx.fillStyle = wc; ctx.fillText(w.well_id + (w.no_measurable_object ? ' (not measurable)' : '') + (tag ? ' (' + tag + ')' : ''), a + 3, b + 13);
-    if (st.tool === 'well') for (const [x, y] of w.polygon) { const [p, q] = toScr(x, y); ctx.fillRect(p - 3, q - 3, 6, 6); }
-  }
+  if (st.step === 'scale') return drawScaleLine();
   // parts
   const showFree = $('#tParts').checked || st.tool === 'assign', showRemoved = $('#tRemoved').checked;
   for (const p of d.parts) {
@@ -239,14 +484,6 @@ function render() {
     ctx.fillStyle = '#000a'; const label = o.object_id.replace('OBJ-0000', '').replace('OBJ-', '');
     ctx.fillRect(a, b - 15, ctx.measureText(label).width + 6, 14); ctx.fillStyle = c; ctx.fillText(label, a + 3, b - 4);
   }
-  // calibration line (if drawn on this image)
-  const cal = d.calibration.record;
-  if (cal && cal.source_image_id === d.image.image_id) {
-    const [[x1, y1], [x2, y2]] = cal.line, [a, b] = toScr(x1, y1), [p, q] = toScr(x2, y2);
-    ctx.strokeStyle = cal.status === 'confirmed' ? '#2bd65a' : '#ff9f1a'; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(p, q); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = ctx.strokeStyle; ctx.fillText(`${cal.known_length} ${cal.unit} (${cal.status})`, a, b - 6);
-  }
   // in-progress drawing
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
   if (st.drag && st.drag.kind === 'rect') { const [a, b] = toScr(...st.drag.p0), [p, q] = toScr(...st.drag.p1); ctx.strokeRect(a, b, p - a, q - b); }
@@ -268,13 +505,27 @@ function render() {
     const [a, b] = toScr(...st.mouse); ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(a, b, brushR() * v.s, 0, 7); ctx.stroke();
   }
 }
-function wellWeak(w) {
-  const d = w.detection; if (!d || String(w.source).includes('edited')) return '';
-  if (d.grid_cell) return 'grid cell — no well outline';
-  if (d.partial) return 'cut by image edge';
-  if (d.rel_score != null && d.rel_score < 0.35) return 'low confidence';
-  return '';
+
+
+function scaleHandleAt(p) {
+  const l = st.scaleLine && st.scaleLine.line; if (!l) return null;
+  for (let i = 0; i < 2; i++) if (Math.hypot(l[i][0] - p[0], l[i][1] - p[1]) * st.view.s < 10) return i;
+  return null;
 }
+function drawScaleLine() {
+  const sc = st.summary && st.summary.scale, S0 = st.scaleLine;
+  let line = null, col = '#ff9f1a', label = '';
+  if (S0) { line = S0.line; label = `${S0.known ?? 500} ${S0.unit || 'µm'} = ${fmt(sLen(S0), 1)} px`; }
+  else if (sc && sc.status === 'confirmed' && sc.source_image_id === st.imageId) { line = sc.line; col = '#2bd65a'; label = `confirmed · ${sc.known_length} ${sc.unit}`; }
+  if (!line) return;
+  const [a, b] = toScr(...line[0]), [p, q] = toScr(...line[1]);
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(p, q); ctx.stroke();
+  for (const [x, y] of [[a, b], [p, q]]) { ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); }
+  ctx.font = '13px sans-serif'; ctx.fillText(label, Math.min(a, p), Math.min(b, q) - 10);
+  if (st.drag && st.drag.kind === 'line') { const [c, d] = toScr(...st.drag.p0), [e, f] = toScr(...st.drag.p1); ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(c, d); ctx.lineTo(e, f); ctx.stroke(); }
+}
+
 async function editCall(path, body) {
   const before = (st.detail.objects.find(o => o.object_id === st.selected) || {}).status;
   const o = await api('POST', S(path), body);
@@ -295,6 +546,7 @@ function pip(x, y, poly) {
 }
 const inPolys = (x, y, polys) => polys.reduce((a, c) => a ^ pip(x, y, c), false);  // even-odd (holes)
 function objectAt(x, y) {
+  if (st.step !== 'review') return null;
   let best = null;
   for (const o of st.detail.objects) {
     if (!o.contours || !o.bbox) continue;
@@ -312,6 +564,7 @@ function partAt(x, y) {
   }
   return best && best.p;
 }
+
 
 // ---------------------------------------------------------------- formatting
 function fmt(v, d = 1) { return v === null || v === undefined || isNaN(v) ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }); }
@@ -333,118 +586,57 @@ const FLAGNAMES = { touches_well_boundary: 'touches well/region boundary', touch
   calibration_unconfirmed: 'calibration not confirmed (pixel units only)' };
 const flagList = o => Object.entries(o.flags).filter(([k, v]) => v).map(([k]) => FLAGNAMES[k] || k);
 
+// ---------------------------------------------------------------- 5 · review: panels
+const cellUnits = o => {          // the four numbers the researcher works with (region "cells", µm when the scale is confirmed)
+  const m = o.measurements; if (!m || !m.cells || !m.cells.px) return null;
+  const c = m.cells, u = c.um || c.px, um = !!c.um;
+  return { um, diameter: u.ecd, perimeter: u.perimeter, area: u.area, circ: c.px.circularity };
+};
+function measure4(o) {
+  const v = cellUnits(o); if (!v) return '<div class="muted">empty mask — no measurements</div>';
+  const L = v.um ? 'µm' : 'px', A = v.um ? 'µm²' : 'px²';
+  return `<div class="measure4"><div>Diameter <b>${fmt(v.diameter)} ${L}</b></div><div>Perimeter <b>${fmt(v.perimeter)} ${L}</b></div>
+    <div>Area <b>${fmt(v.area, 0)} ${A}</b></div><div>Circularity <b>${fmt(v.circ, 3)}</b></div></div>`;
+}
 function showTip(o, sx, sy) {
   const t = $('#tip');
-  if (!o) { t.hidden = true; return; }
-  const cal = st.detail.calibration;
-  t.innerHTML = `<div><b>${o.object_id}</b> · ${o.well_id || 'no well'} · ${o.status} · ${o.source}${o.edited ? ' (edited)' : ''}</div>
-    <table>${measRows(o, REGIONS)}</table>
-    <div class="small">${cal.status === 'confirmed' ? `scale ${fmt(cal.um_per_px, 4)} µm/px (confirmed)` : 'pixel units — calibration ' + cal.status}</div>
-    ${(() => { const f = flagList({ flags: { ...o.flags, calibration_unconfirmed: false } }); return f.length ? `<div class="small" style="color:#ffcc66">${f.join(' · ')}</div>` : ''; })()}`;
+  if (!o || st.step !== 'review') { t.hidden = true; return; }
+  const v = cellUnits(o), L = v && v.um ? 'µm' : 'px', A = v && v.um ? 'µm²' : 'px²';
+  t.innerHTML = `<div><b>${o.object_id}</b> · ${o.status === 'unreviewed' ? 'to review' : o.status === 'accepted' ? 'approved' : 'rejected'}${o.source === 'manual' ? ' · drawn by you' : ''}</div>` +
+    (v ? `<table><tr><td>Diameter</td><td class="n">${fmt(v.diameter)} ${L}</td></tr><tr><td>Perimeter</td><td class="n">${fmt(v.perimeter)} ${L}</td></tr>
+      <tr><td>Area</td><td class="n">${fmt(v.area, 0)} ${A}</td></tr><tr><td>Circularity</td><td class="n">${fmt(v.circ, 3)}</td></tr></table>` : '<div>empty mask</div>') +
+    (v && !v.um ? '<div class="small" style="color:#ffcc66">scale not confirmed — values in pixels</div>' : '') +
+    '<div class="small" style="color:#9ecbff">click to select</div>';
   t.hidden = false;
   const r = $('#stage').getBoundingClientRect();
   t.style.left = Math.min(sx + 14, r.width - t.offsetWidth - 4) + 'px';
   t.style.top = Math.min(sy + 14, r.height - t.offsetHeight - 4) + 'px';
 }
 
-// ---------------------------------------------------------------- panels
 function renderPanels() {
   const d = st.detail, im = d.image;
-  const tune = im.used_for_tuning ? '<span class="badge warn" title="Profiles were tuned on this image: do not use it to measure segmentation accuracy">used for tuning</span>' : '';
+  const sm = st.summary.images.find(i => i.image_id === im.image_id) || { labels: {} };
+  const sc = st.summary.scale;
+  const tune = im.used_for_tuning ? '<span class="badge warn" title="Profiles were tuned on this photo: do not use it to measure segmentation accuracy">used for tuning</span>' : '';
   $('#imgInfo').innerHTML = `<div class="fn" style="font-weight:600;word-break:break-all">${esc(im.original_filename)}</div>
-    <div class="small muted">${im.image_id} · ${im.width}×${im.height} px · SHA-256 ${im.sha256.slice(0, 12)}… ${tune}</div>
-    <div class="row">Profile <select id="profSel">${d.profiles.map(p => `<option ${p === im.profile ? 'selected' : ''}>${p}</option>`).join('')}</select>
-      <button id="btnDetect">Detect objects</button><button id="btnProfAll" class="small" title="Use this profile for every image in the session">for all images</button></div>
-    <div class="small muted" title="${esc((st.config && st.config.profiles[im.profile] || {}).description || '')}">${esc(((st.config && st.config.profiles[im.profile] || {}).description || '').slice(0, 140))}…</div>
-    <div class="small muted">Detection: ${esc(im.processing.status)}${im.processing.time ? ' · ' + im.processing.time : ''}${im.processing.wells_changed_since_run ? ' · <span class="warnline">wells changed since run</span>' : ''}${im.processing.message ? ' · ' + esc(im.processing.message) : ''}</div>
-    <div class="row">${im.image_flags.map(f => `<span class="badge bad" title="${esc(f.reason)} (set by ${esc(f.set_by)})">${esc(f.flag)} <a href="#" data-unflag="${esc(f.flag)}">×</a></span>`).join('')}
-      <button id="btnFlagImg" class="small">Flag image unreliable…</button></div>
-    <div class="row"><label><input id="revDone" type="checkbox" ${im.review_done ? 'checked' : ''}> Image review complete</label>
-      <button id="prevImg">◀ Prev</button><button id="nextImg">Next ▶</button>
-      <span class="small muted" title="Measured: counts only while this image is open in a visible, focused window and you moved, clicked, typed or scrolled within the last ${ACTIVE_WINDOW_S} s. Exported in the Review effort sheet.">active review time <b id="actTime">0:00</b></span></div>
-    <textarea id="imgNotes" rows="2" placeholder="image notes" style="width:100%">${esc(im.notes)}</textarea>`;
-  $('#profSel').onchange = async e => { await api('PUT', S(`/image/${im.image_id}/profile`), { profile: e.target.value }); msg('Profile set. Run detection to apply it.'); reload(); };
+    <div class="crumb small muted">${esc(labText(sm.labels))} ${tune}${sc.status === 'confirmed' ? '' : ' · <span class="warnline">scale not confirmed (values in px)</span>'}</div>
+    <div class="row"><button id="prevImg">◀ Prev</button><button id="nextImg">Next ▶</button>
+      <button id="btnDetect" title="Run detection again on this photo only">Re-run detection</button>
+      <span class="small muted">${im.processing.status === 'processed' ? '' : esc(im.processing.status)}${im.processing.message ? ' · ' + esc(im.processing.message) : ''}</span></div>`;
   $('#btnDetect').onclick = detectThis;
-  $('#btnProfAll').onclick = async () => {
-    if (!confirm(`Use profile "${im.profile}" for all ${st.summary.images.length} images? (Takes effect at the next detection.)`)) return;
-    await api('PUT', S('/profile_many'), { image_ids: st.summary.images.map(i => i.image_id), profile: im.profile }); msg('Profile set for all images.'); reload();
-  };
-  showActive();
-  $('#revDone').onchange = async e => { await api('PUT', S(`/image/${im.image_id}/meta`), { review_done: e.target.checked }); refreshSummary(); };
-  $('#imgNotes').onchange = e => api('PUT', S(`/image/${im.image_id}/meta`), { notes: e.target.value });
   $('#prevImg').onclick = () => step(-1); $('#nextImg').onclick = () => step(1);
-  $('#btnFlagImg').onclick = async () => {
-    const reason = prompt('Reason for flagging this image as unreliable segmentation:'); if (reason === null) return;
-    const keep = im.image_flags.filter(f => f.set_by === 'user').map(f => ({ flag: f.flag, reason: f.reason }));
-    await api('PUT', S(`/image/${im.image_id}/meta`), { flags: [...keep, { flag: 'unreliable_segmentation', reason }] }); reload();
+  showActive();
+  $('#profBox').innerHTML = `<div class="row">Model <select id="profSel">${d.profiles.map(p => `<option ${p === im.profile ? 'selected' : ''}>${p}</option>`).join('')}</select>
+    <button id="btnProfAll" class="small" title="Use this model for every photo (takes effect at the next detection)">for all photos</button></div>
+    <div class="small muted">${esc(((st.config && st.config.profiles[im.profile]) || {}).description || '').slice(0, 200)}</div>`;
+  $('#profSel').onchange = async e => { await api('PUT', S(`/image/${im.image_id}/profile`), { profile: e.target.value }); msg('Model set. Re-run detection to apply it.'); reload(); };
+  $('#btnProfAll').onclick = async () => {
+    if (!confirm(`Use model "${im.profile}" for all ${st.summary.images.length} photos? (Takes effect at the next detection.)`)) return;
+    await api('PUT', S('/profile_many'), { image_ids: st.summary.images.map(i => i.image_id), profile: im.profile }); msg('Model set for all photos.'); reload();
   };
-  document.querySelectorAll('[data-unflag]').forEach(a => a.onclick = async e => { e.preventDefault(); await api('DELETE', S(`/image/${im.image_id}/flag/${a.dataset.unflag}`)); reload(); });
-  renderCal(); renderWells(); renderRefs(); renderObjects();
+  renderRefs(); renderObjects();
 }
 
-function renderCal() {
-  const d = st.detail, c = d.calibration, rec = c.record, im = d.image;
-  let h = '<h4>Scale</h4>';
-  if (c.status === 'confirmed') {
-    h += `<div><span class="badge ok">confirmed</span> ${fmt(c.um_per_px, 5)} µm/px · ${rec.cal_id}: line ${fmt(rec.line_length_px, 1)} px = ${rec.known_length} ${esc(rec.unit)}${rec.source_image_id !== im.image_id ? ` (drawn on ${rec.source_image_id})` : ''}</div>
-      <div class="row"><button id="calApply">Apply to other images…</button><button id="calClear">Remove from this image</button></div>`;
-  } else if (rec) {
-    h += `<div><span class="badge warn">unconfirmed</span> estimate ${fmt(rec.um_per_px, 5)} µm/px (${rec.cal_id}, line ${fmt(rec.line_length_px, 1)} px = ${rec.known_length} ${esc(rec.unit)}).
-      Physical values are hidden until confirmed.</div><div class="small muted">${esc(rec.note)}</div>
-      <div class="row">${rec.source_image_id === im.image_id ? '<button id="calConfirm">Review & confirm this line…</button>' : ''}<button id="calClear">Remove</button></div>`;
-  } else {
-    h += `<div><span class="badge warn">none</span> Measurements are in pixels. Use the <b>Scale</b> tool: drag a line along a known reference (e.g. the scale bar), then enter its length.</div>`;
-  }
-  $('#calBox').innerHTML = h;
-  const b1 = $('#calConfirm'); if (b1) b1.onclick = confirmEstimate;
-  const b2 = $('#calClear'); if (b2) b2.onclick = async () => { await api('DELETE', S(`/image/${im.image_id}/calibration`)); reload(); };
-  const b3 = $('#calApply'); if (b3) b3.onclick = applyCalDialog;
-}
-
-function renderWells() {
-  const im = st.detail.image, wd = im.well_detection;
-  const others = st.summary.images.filter(i => i.image_id !== im.image_id && i.n_wells);
-  let det = '';
-  if (wd && wd.status === 'failed') det = `<div class="warnline"><b>Automatic well detection failed:</b> ${esc(wd.reason)}. Draw wells with the Well tool, copy them, or use the whole image as one region.</div>`;
-  else if (wd && wd.status === 'ok') {
-    const weak = im.wells.filter(wellWeak).map(w => w.well_id + ': ' + wellWeak(w));
-    const grid = String(wd.info.method_detail || '').startsWith('grid');
-    det = grid ? `<div class="small"><span class="warnline">No well outline found.</span> Proposed ${wd.n_wells} <b>grid cells</b> (G1…G${wd.n_wells}): working regions from the regular pattern of dark objects, <b>not wells</b>. A cell can hold several objects or none, and objects can be cut by its edge — check them.${wd.applied ? '' : ' <b>Not applied</b>: ' + esc(wd.reason)}</div>` :
-      `<div class="small">Auto-detected ${wd.n_wells} ${esc(wd.info.shape || '')} wells (${esc(wd.method)}${wd.params && wd.params.inner_floor ? ', inner floor' : ''}, grid ${Math.round(wd.info.period_x || 0)}×${Math.round(wd.info.period_y || 0)} px)${wd.applied ? '' : ' — <b>not applied</b>: ' + esc(wd.reason)}.
-      ${weak.length ? `<span class="warnline">Check: ${weak.map(esc).join(', ')}</span>` : ''} Proposals — check every outline.</div>`;
-  } else if (im.preset_applied) det = '<div class="small muted">Wells from the example preset (hand-placed in the prototype).</div>';
-  const nGrid = im.wells.filter(w => w.detection && w.detection.grid_cell).length;
-  $('#wellBox').innerHTML = `<h4>Wells / regions (${im.wells.length}${nGrid ? `, of which ${nGrid} grid cells — not wells` : ''})${im.wells.some(w => w.no_measurable_object) ? ' · some marked not measurable' : ''}</h4>
-    ${det}
-    <div class="row"><button id="btnDetWells" title="Classical grid/outline detection; proposals are editable">Detect wells</button>
-      <label class="small" title="For wells surrounded by a thick dark frame (e.g. YAMUK / y-type images): move each side inward to the bright floor. Not for pyramid wells."><input type="checkbox" id="wellInner" ${st.wellInner ? 'checked' : ''}> dark frame: fit inner floor</label>
-      <button id="btnWholeImg" class="small" title="Use the whole image as one region (when wells are not visible)">Whole image as one region</button></div>
-    <details ${im.wells.length ? '' : 'open'}><summary>Well list and editing</summary>
-    <div class="small muted">Edit: <b>Well</b> tool — drag a rectangle to add, drag a corner to resize, Alt+drag for a single corner.</div>
-    ${im.wells.map(w => `<div class="row" title="source: ${esc(w.source)}${w.detection ? ' · score ' + w.detection.rel_score : ''}"><input data-wid="${esc(w.well_id)}" value="${esc(w.well_id)}" size="5" title="rename">
-      <span class="small muted">${esc(w.source)}</span>${wellWeak(w) ? `<span class="badge warn">${wellWeak(w)}</span>` : ''}
-      <label class="small"><input type="checkbox" data-nmo="${esc(w.well_id)}" ${w.no_measurable_object ? 'checked' : ''}> no measurable object</label>
-      <button class="small" data-delw="${esc(w.well_id)}">delete</button></div>`).join('')}
-    ${others.length ? `<div class="row">Copy wells from <select id="copyFrom">${others.map(i => `<option value="${i.image_id}">${i.image_id} ${esc(i.original_filename.slice(0, 24))}</option>`).join('')}</select><button id="btnCopyWells">Copy</button></div>` : ''}</details>`;
-  document.querySelectorAll('[data-wid]').forEach(inp => inp.onchange = () => {
-    const ws = im.wells.map(w => w.well_id === inp.dataset.wid ? { ...w, well_id: inp.value.trim() } : w); saveWells(ws);
-  });
-  document.querySelectorAll('[data-nmo]').forEach(cb => cb.onchange = async () => { await api('PUT', S(`/image/${im.image_id}/well/${encodeURIComponent(cb.dataset.nmo)}`), { no_measurable_object: cb.checked }); reload(); });
-  document.querySelectorAll('[data-delw]').forEach(b => b.onclick = () => { if (confirm('Delete well ' + b.dataset.delw + '? (objects are kept)')) saveWells(im.wells.filter(w => w.well_id !== b.dataset.delw)); });
-  const cp = $('#btnCopyWells'); if (cp) cp.onclick = async () => { await api('POST', S(`/image/${im.image_id}/copy_wells`), { from_image_id: $('#copyFrom').value }); msg('Wells copied — check and adjust them for this image.'); reload(); };
-  $('#btnDetWells').onclick = async () => {
-    const replace = im.wells.length ? confirm(`Replace the ${im.wells.length} existing wells with automatic proposals? Objects are kept.`) : true;
-    if (im.wells.length && !replace) return;
-    st.wellInner = $('#wellInner').checked;
-    const r = await api('POST', S(`/image/${im.image_id}/detect_wells`), { replace, params: { inner_floor: st.wellInner } });
-    const g = r.info && String(r.info.method_detail || '').startsWith('grid');
-    msg(r.status === 'ok' ? (g ? `No well outline found: ${r.n_wells} grid cells (working regions, not wells) proposed — check them` : `${r.n_wells} wells proposed — check them`) : 'Well detection failed: ' + r.reason, r.status !== 'ok'); reload();
-  };
-  $('#btnWholeImg').onclick = async () => {
-    if (im.wells.length && !confirm('Replace existing wells with one region covering the whole image?')) return;
-    await api('POST', S(`/image/${im.image_id}/whole_image`)); reload();
-  };
-}
 // ---------------------------------------------------------------- ImageJ reference outlines (comparison only)
 function renderRefs() {
   const im = st.detail.image, refs = im.references || [], files = im.reference_files || [];
@@ -466,35 +658,35 @@ function renderRefs() {
   const c = $('#refClear'); if (c) c.onclick = async () => { if (confirm('Remove all reference files of this image?')) { await api('DELETE', S(`/image/${im.image_id}/references`)); reload(); } };
 }
 
-async function saveWells(wells) { await api('PUT', S(`/image/${st.detail.image.image_id}/wells`), { wells }); reload(); }
+
 
 function renderObjects() {
   const objs = st.detail.objects;
   const n = s => objs.filter(o => o.status === s).length;
-  $('#objBox').innerHTML = `<h4>Objects (${objs.length}: ${n('accepted')} accepted, ${n('rejected')} rejected, ${n('unreviewed')} unreviewed)</h4>
-    ${objs.length ? '' : '<div class="muted">No objects. Draw wells and run detection, or add one with “Draw: new”.</div>'}
+  const todo = n('unreviewed');
+  $('#objBox').innerHTML = `<h4>Objects · <span class="${todo ? 'warnline' : ''}">${todo} to review</span> · ${n('accepted')} approved · ${n('rejected')} rejected</h4>
+    ${objs.length ? `<div class="row"><button id="btnAllOk" ${todo ? '' : 'disabled'} title="Approve every object of this photo that is still to review">Approve all remaining (${todo})</button>
+      <button id="btnAllReset" class="small" ${objs.some(o => o.status !== 'unreviewed') ? '' : 'disabled'} title="Put every decision of this photo back to “to review”">Reset all</button></div>` :
+      '<div class="muted">No objects found. Use “Draw: new” (D) to draw one yourself, or re-run detection.</div>'}
     ${objs.map(o => `<div class="card ${o.object_id === st.selected ? 'sel' : ''}" data-oid="${o.object_id}">
-      <div class="t"><b>${o.object_id}</b><span class="small">${esc(o.well_id || 'no well')} · ${o.source}${o.edited ? ' · edited' : ''}</span>
-        <span class="badge ${o.status === 'accepted' ? 'ok' : o.status === 'rejected' ? 'bad' : 'warn'}">${o.status}</span></div>
-      <table>${measRows(o, REGIONS)}</table>
+      <div class="t"><b>${o.object_id}</b><span class="small muted">${o.source === 'manual' ? 'drawn by you' : 'detected'}${o.edited ? ' · edited' : ''}</span>
+        <span class="badge ${o.status === 'accepted' ? 'ok' : o.status === 'rejected' ? 'bad' : 'warn'}">${o.status === 'unreviewed' ? 'to review' : o.status === 'accepted' ? 'approved' : 'rejected'}</span></div>
+      ${measure4(o)}
       ${flagList(o).length ? `<div class="small warnline">${flagList(o).join(' · ')}</div>` : ''}
       ${o.proximity_parts ? `<div class="small" style="color:#9a6700">${o.proximity_parts} part(s) attached only by proximity (yellow dashed) — unconfirmed <button class="small" data-detach="1">Detach them</button></div>` : ''}
-      <div class="small muted">mask v${o.mask_version || 1}${o.added_px ? ` · ${o.added_px} px added by gap closing/hole filling` : ''}${o.approval ? ` · ${o.approval.status} by ${esc(o.approval.by || '(no name)')} on v${o.approval.mask_version}` : ''}</div>
       <div class="row">
-        <button class="ok" data-act="accepted">Accept (A)</button><button class="bad" data-act="rejected">Reject (R)</button>
+        <button class="ok" data-act="accepted">Approve (A)</button><button class="bad" data-act="rejected">Reject (R)</button>
         <button data-act="unreviewed" class="small">Reset</button>
         ${o.source === 'manual' ? '<button class="small" data-del="1">Delete</button>' : ''}</div>
-      <div class="row small">${['ambiguous_boundary', 'partial_object', 'unreliable_segmentation'].map(f =>
-        `<label><input type="checkbox" data-flag="${f}" ${o.flags[f] ? 'checked' : ''}> ${FLAGNAMES[f]}</label>`).join('')}</div>
-      <textarea rows="1" data-notes placeholder="notes">${esc(o.notes)}</textarea></div>`).join('')}`;
+      <details><summary>all measurements</summary><table>${measRows(o, REGIONS)}</table></details></div>`).join('')}`;
+  const ba = $('#btnAllOk'); if (ba) ba.onclick = async () => { const r = await api('POST', S(`/image/${st.imageId}/status_all`), { status: 'accepted', only_status: 'unreviewed' }); msg(`${r.changed} object(s) approved.`); reload(); };
+  const br = $('#btnAllReset'); if (br) br.onclick = async () => { if (!confirm('Put all decisions of this photo back to “to review”?')) return; await api('POST', S(`/image/${st.imageId}/status_all`), { status: 'unreviewed' }); reload(); };
   for (const card of document.querySelectorAll('.card')) {
     const oid = card.dataset.oid;
-    card.onclick = e => { if (e.target.closest('button,input,textarea,label')) return; select(oid); };
+    card.onclick = e => { if (e.target.closest('button,input,textarea,label,details')) return; select(oid); };
     card.querySelectorAll('[data-act]').forEach(b => b.onclick = () => setStatus(oid, b.dataset.act));
-    card.querySelectorAll('[data-flag]').forEach(cb => cb.onchange = async () => { await api('PUT', S(`/object/${oid}/meta`), { flags: { [cb.dataset.flag]: cb.checked } }); reload(); });
-    const ta = card.querySelector('[data-notes]'); ta.onchange = () => api('PUT', S(`/object/${oid}/meta`), { notes: ta.value });
     const det = card.querySelector('[data-detach]'); if (det) det.onclick = async () => { await api('POST', S(`/object/${oid}/detach_proximity`)); msg('Proximity parts detached'); reload(); };
-    const del = card.querySelector('[data-del]'); if (del) del.onclick = async () => { if (confirm('Delete manual object ' + oid + '?')) { await api('DELETE', S(`/object/${oid}`)); if (st.selected === oid) st.selected = null; reload(); } };
+    const del = card.querySelector('[data-del]'); if (del) del.onclick = async () => { if (confirm('Delete your drawn object ' + oid + '?')) { await api('DELETE', S(`/object/${oid}`)); if (st.selected === oid) st.selected = null; reload(); } };
   }
 }
 function select(oid) {
@@ -502,72 +694,35 @@ function select(oid) {
   const c = document.querySelector(`.card[data-oid="${oid}"]`); if (c) c.scrollIntoView({ block: 'nearest' });
 }
 async function setStatus(oid, status) {
-  const reviewer = ($('#reviewer').value || '').trim();
-  if (status !== 'unreviewed' && !reviewer && !st.warnedReviewer) { st.warnedReviewer = true; msg('Tip: enter your name in "Reviewer" so approvals record who decided.'); }
-  await api('POST', S(`/object/${oid}/status`), { status, reviewer }); await reload();
+  await api('POST', S(`/object/${oid}/status`), { status }); await reload();
 }
 function step(k) {
-  const ims = st.summary.images; const i = ims.findIndex(x => x.image_id === st.imageId);
+  const ims = visImgs(); const i = ims.findIndex(x => x.image_id === st.imageId);
   const j = i + k; if (j >= 0 && j < ims.length) openImage(ims[j].image_id);
 }
 
-// ---------------------------------------------------------------- detection
+// ---------------------------------------------------------------- detection of one photo
 async function detectThis() {
   const im = st.detail.image;
   const kept = st.detail.objects.filter(o => o.status !== 'unreviewed' || o.source !== 'auto' || o.edited).length;
   const drop = st.detail.objects.length - kept;
-  if (drop && !confirm(`Re-run detection? ${drop} unreviewed, unedited automatic objects will be replaced. ${kept} reviewed/edited/manual objects are kept.`)) return;
-  msg('Detecting…'); const p = await api('POST', S(`/image/${im.image_id}/process`));
-  msg(p.status === 'processed' ? `Detection done: ${p.new_objects} new candidates` : p.message || p.status, p.status !== 'processed');
+  if (drop && !confirm(`Re-run detection on this photo? ${drop} unreviewed, unedited detected objects will be replaced. ${kept} approved/rejected/edited/drawn objects are kept.`)) return;
+  msg('Detecting…'); const p = await api('POST', S(`/image/${im.image_id}/process`), { whole_region: true });
+  msg(p.status === 'processed' ? `Detection done: ${p.new_objects} new objects` : p.message || p.status, p.status !== 'processed');
   reload();
 }
-$('#btnDetectAll').onclick = async () => {
-  if (!st.session) return;
-  if (!confirm('Run detection on all images? Images without wells first get automatic well detection; where that fails the image is reported as "needs_wells". Unreviewed, unedited automatic candidates are replaced; reviewed/edited/manual objects are kept.')) return;
-  await api('POST', S('/process_all'), {}); pollJob();
-};
-async function pollJob() {
-  const j = await api('GET', S('/job'));
-  $('#jobStatus').textContent = j.running ? `Detecting ${j.done}/${j.total}… (${j.current || ''})` : `Batch done: ${j.done}/${j.total}${j.errors.length ? ', ' + j.errors.length + ' errors' : ''}`;
-  if (j.running) setTimeout(pollJob, 1000); else reload();
-}
 
-// ---------------------------------------------------------------- calibration dialogs
-function dialog(html, onOk) {
-  const d = $('#dlg'); $('#dlgForm').innerHTML = html + '<div class="row" style="justify-content:flex-end;margin-top:10px"><button value="cancel">Cancel</button><button value="ok" id="dlgOk">OK</button></div>';
-  d.showModal(); d.onclose = () => { if (d.returnValue === 'ok') onOk(new FormData($('#dlgForm'))); };
-}
-function scaleDialog(line) {
-  const L = Math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]);
-  dialog(`<h3>Set scale</h3><div>Line length: <b>${fmt(L, 2)} px</b> (original image pixels; zoom does not matter).</div>
-    <label>Known length <input name="len" type="number" step="any" min="0" required></label>
-    <label>Unit <select name="unit"><option>µm</option><option>mm</option><option>nm</option></select></label>
-    <label><input type="checkbox" name="conf" required> I confirm this line spans exactly the known reference length.</label>`, async f => {
-    if (!f.get('conf')) return msg('Calibration not saved: confirmation not ticked', true);
-    await api('POST', S(`/image/${st.imageId}/calibration`), { line, known_length: +f.get('len'), unit: f.get('unit'), confirmed: true });
-    msg('Scale saved and confirmed for this image.'); reload();
-  });
-}
-function confirmEstimate() {
-  const rec = st.detail.calibration.record;
-  dialog(`<h3>Confirm estimated scale</h3><div>The orange dashed line on the image (${fmt(rec.line_length_px, 1)} px) is assumed to be <b>${rec.known_length} ${esc(rec.unit)}</b>.
-    Zoom in and check that it matches the reference end to end. If not, cancel and draw a new line with the Scale tool.</div>
-    <label><input type="checkbox" name="conf" required> I checked the line and it spans exactly ${rec.known_length} ${esc(rec.unit)}.</label>`, async f => {
-    if (!f.get('conf')) return;
-    await api('POST', S(`/calibration/${rec.cal_id}/confirm`), { image_id: st.imageId }); msg('Scale confirmed for this image.'); reload();
-  });
-}
-function applyCalDialog() {
-  const rec = st.detail.calibration.record;
-  const others = st.summary.images.filter(i => i.image_id !== st.imageId);
-  dialog(`<h3>Apply ${rec.cal_id} (${fmt(rec.um_per_px, 5)} µm/px) to other images</h3>
-    <div style="max-height:240px;overflow:auto">${others.map(i => `<label><input type="checkbox" name="img" value="${i.image_id}"> ${i.image_id} ${esc(i.original_filename)} <span class="muted">(${i.width}×${i.height}, scale ${i.calibration})</span></label>`).join('')}</div>
-    <label><input type="checkbox" name="compat" required> I confirm the selected images were acquired with the same objective/camera settings and were not resized or cropped differently.</label>`, async f => {
-    const ids = f.getAll('img'); if (!ids.length) return;
-    await api('POST', S(`/calibration/${rec.cal_id}/apply`), { image_ids: ids, compatible_confirmed: !!f.get('compat') });
-    msg(`Calibration applied to ${ids.length} image(s).`); reload();
-  });
-}
+// ---------------------------------------------------------------- export
+$('#btnExport').onclick = async () => {
+  if (!st.session) return;
+  try {
+    const j = await api('POST', S('/export'));
+    const href = S('/files/' + j.xlsx);
+    $('#exportLink').innerHTML = `<a href="${href}">spheroid_measurements.xlsx</a> <span class="muted small">✓ ${j.n_objects} spheroid(s)</span>`;
+    const a = document.createElement('a'); a.href = href; a.download = 'spheroid_measurements.xlsx'; document.body.appendChild(a); a.click(); a.remove();
+    msg('Excel written.');
+  } catch (e) { refreshSummary(); }
+};
 
 // ---------------------------------------------------------------- tools & mouse
 function setTool(t) {
@@ -575,8 +730,7 @@ function setTool(t) {
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   const H = {
     select: 'Hover an object to see its measurements; click to select. Drag empty space to pan, wheel to zoom.',
-    well: 'Drag a rectangle to add a well region. Drag a corner square to resize; Alt+drag moves a single corner (non-rectangular wells).',
-    scale: 'Drag a line exactly along a known reference (e.g. the 500 µm bar). You will enter its length next.',
+    scale: 'Drag a line along the scale bar, from one end to the other (Shift = horizontal). Drag an end of the line to adjust it.',
     brushAdd: 'Paint to ADD pixels to the selected object. Set brush radius (image px) in the toolbar.',
     brushErase: 'Paint to ERASE pixels from the selected object.',
     polyNew: 'Draw a NEW manual object. ' + SHAPE_HINT[drawShape()],
@@ -584,7 +738,7 @@ function setTool(t) {
     polyErase: 'Draw a shape to ERASE from the selected object. ' + SHAPE_HINT[drawShape()],
     assign: 'Orange = unassigned, purple = wall/shadow shape, white = cut line of a watershed split (assign it and the other piece to re-merge); with "removed pixels" on: pink = wall band, blue = thin, green = small. Yellow dashed = attached only by proximity. Click a part to add it to the selected object (click one of its own parts to remove it). No object selected, or Shift+click: the part becomes its own new object.',
   };
-  $('#hint').textContent = H[t]; render();
+  $('#hint').textContent = st.step === 'scale' ? 'Drag an end of the orange line to adjust it. Wheel = zoom, drag = pan. “Draw line by hand”: ' + H.scale : H[t]; render();
 }
 document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 const needSel = () => { if (!st.selected) { msg('Select an object first (Select tool, click it).', true); return false; } return true; };
@@ -623,8 +777,8 @@ function shapePolygon(d) {
 }
 async function submitDrawn(pts, shape) {
   if (st.tool === 'polyNew') {
-    const o = await api('POST', S(`/image/${st.imageId}/objects`), { polygon: pts, shape }); st.selected = o.object_id;
-    msg(`New manual object ${o.object_id} (${shape})`);
+    const o = await api('POST', S(`/image/${st.imageId}/objects`), { polygon: pts, shape, accept: true }); st.selected = o.object_id;
+    msg(`Your object ${o.object_id} was added and approved (${shape}).`);
   } else {
     if (!needSel()) return render();
     await editCall(`/object/${st.selected}/polygon`, { polygon: pts, mode: st.tool === 'polyAdd' ? 'add' : 'erase', shape });
@@ -638,17 +792,13 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
   if (!st.detail) return;
   const { sx, sy, p } = evPos(e);
+  if (st.step === 'scale' && st.scaleLine && e.button === 0) {
+    const h = scaleHandleAt(p); if (h !== null) { st.drag = { kind: 'sline', i: h }; return; }
+  }
   if (e.button === 1 || e.button === 2 || (st.tool === 'select' && !objectAt(...p)) || e.shiftKey && st.tool === 'select') {
     st.drag = { kind: 'pan', sx, sy, tx: st.view.tx, ty: st.view.ty }; return;
   }
   if (st.tool === 'select') { const o = objectAt(...p); if (o) select(o.object_id); return; }
-  if (st.tool === 'well') {
-    for (const w of st.detail.image.wells) w.polygon.forEach((q, i) => {
-      if (!st.drag && Math.hypot(q[0] - p[0], q[1] - p[1]) * st.view.s < 8) st.drag = { kind: 'vertex', well: w.well_id, i, orig: w.polygon.map(v => [...v]) };
-    });
-    if (!st.drag) st.drag = { kind: 'rect', p0: p, p1: p };
-    return;
-  }
   if (st.tool === 'scale') { st.drag = { kind: 'line', p0: p, p1: p }; return; }
   if (isDraw(st.tool) && drawShape() !== 'polygon') {
     if (st.tool !== 'polyNew' && !needSel()) return;
@@ -662,20 +812,11 @@ cv.addEventListener('mousemove', e => {
   $('#coords').textContent = `x ${p[0].toFixed(1)}, y ${p[1].toFixed(1)} px · zoom ${Math.round(st.view.s * 100)}%`;
   const d = st.drag;
   if (d && d.kind === 'pan') { st.view.tx = d.tx + sx - d.sx; st.view.ty = d.ty + sy - d.sy; render(); return; }
-  if (d && (d.kind === 'rect' || d.kind === 'line')) { d.p1 = p; render(); return; }
+  if (d && d.kind === 'line') { d.p1 = e.shiftKey ? [p[0], d.p0[1]] : p; render(); return; }
   if (d && d.kind === 'shape') { d.p1 = p; d.shift = e.shiftKey; d.pts.push(p); render(); return; }
-  if (d && d.kind === 'vertex') {
-    const w = st.detail.image.wells.find(w => w.well_id === d.well);
-    if (w.polygon.length === 4 && !e.altKey && isRect(d.orig)) {
-      // rectangle: opposite corner stays fixed (Alt-drag moves a single vertex instead)
-      const o = d.orig[(d.i + 2) % 4];
-      const x0 = Math.min(o[0], p[0]), x1 = Math.max(o[0], p[0]), y0 = Math.min(o[1], p[1]), y1 = Math.max(o[1], p[1]);
-      w.polygon = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-    } else w.polygon[d.i] = [p[0], p[1]];
-    d.moved = true; render(); return;
-  }
+  if (d && d.kind === 'sline') { st.scaleLine.line[d.i] = [p[0], p[1]]; render(); return; }
   if (st.stroke) { st.stroke.push(p); render(); return; }
-  if (st.tool === 'select' || st.tool === 'assign') {
+  if (st.step === 'review' && (st.tool === 'select' || st.tool === 'assign')) {
     const o = objectAt(...p); const id = o ? o.object_id : null;
     if (id !== st.hover) { st.hover = id; render(); }
     showTip(o, sx, sy);
@@ -694,23 +835,17 @@ window.addEventListener('mouseup', async e => {
     return reload();
   }
   if (!d) return;
-  if (d.kind === 'rect') {
-    const [x0, x1] = [d.p0[0], d.p1[0]].sort((a, b) => a - b), [y0, y1] = [d.p0[1], d.p1[1]].sort((a, b) => a - b);
-    if ((x1 - x0) * st.view.s < 6 || (y1 - y0) * st.view.s < 6) return render();
-    const ids = new Set(st.detail.image.wells.map(w => w.well_id)); let k = st.detail.image.wells.length + 1; while (ids.has('W' + k)) k++;
-    const W = st.img.naturalWidth, H = st.img.naturalHeight, c = (v, m) => Math.max(0, Math.min(m, v));
-    const poly = [[c(x0, W), c(y0, H)], [c(x1, W), c(y0, H)], [c(x1, W), c(y1, H)], [c(x0, W), c(y1, H)]];
-    return saveWells([...st.detail.image.wells, { well_id: 'W' + k, polygon: poly, source: 'manual' }]);
-  }
-  if (d.kind === 'vertex' && d.moved) return saveWells(st.detail.image.wells);
+  if (d.kind === 'sline') { st.scaleLine.source = 'manual'; renderScale(); return render(); }
   if (d.kind === 'shape') {
     const pts = shapePolygon(d);
     if (!pts) { render(); return msg('Shape too small: drag a larger outline.', true); }
     return submitDrawn(pts, d.shape);
   }
   if (d.kind === 'line') {
-    const line = [d.p0, d.p1]; if (Math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]) < 2) return render();
-    render(); return scaleDialog(line);
+    if (Math.hypot(d.p1[0] - d.p0[0], d.p1[1] - d.p0[1]) < 2) return render();
+    const prev = st.scaleLine || {};
+    st.scaleLine = { line: [d.p0, d.p1], source: 'manual', known: prev.known ?? 500, unit: prev.unit || 'µm' };
+    renderScale(); return render();
   }
 });
 cv.addEventListener('click', async e => {
@@ -757,7 +892,9 @@ $('#btnUndo').onclick = doUndo;
 
 window.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea,select')) return;        // text fields keep the browser's own undo
+  if (st.step !== 'review' && st.step !== 'scale') return;
   const k = e.key.toLowerCase();
+  if (st.step === 'scale') { if (k === '+' || k === '=') zoomAt(1.25); else if (k === '-') zoomAt(0.8); else if (k === 'f') fit(); return; }
   if (e.ctrlKey || e.metaKey) {
     if (k === 'z' && !e.shiftKey) {
       e.preventDefault();
@@ -775,33 +912,12 @@ window.addEventListener('keydown', e => {
   else if (k === 'n') step(1); else if (k === 'p') step(-1);
   else if (k === '+' || k === '=') zoomAt(1.25); else if (k === '-') zoomAt(0.8); else if (k === 'f') fit();
 });
-['tEnv', 'tParts', 'tFill', 'tRemoved'].forEach(id => $('#' + id).onchange = render);
-$('#reviewer').value = localStorage.getItem('reviewer') || '';
-$('#reviewer').onchange = e => localStorage.setItem('reviewer', e.target.value.trim());
 
-// ---------------------------------------------------------------- upload / export
-$('#upload').onchange = async e => {
-  if (!st.session) return msg('Create or open a session first', true);
-  const files = [...e.target.files]; if (!files.length) return;
-  for (let i = 0; i < files.length; i += 10) {           // small chunks keep memory and request size low
-    const fd = new FormData(); files.slice(i, i + 10).forEach(f => fd.append('files', f, f.name));
-    $('#jobStatus').textContent = `Uploading ${Math.min(i + 10, files.length)}/${files.length}…`;
-    await api('POST', S('/upload'), fd, true);
-  }
-  e.target.value = ''; $('#jobStatus').textContent = ''; await refreshSummary();
-  if (!st.imageId && st.summary.images.length) openImage(st.summary.images[0].image_id);
-  msg(`${files.length} file(s) uploaded`);
-};
-$('#btnExport').onclick = async () => {
-  if (!st.session) return;
-  const j = await api('POST', S('/export'));
-  $('#exportLink').innerHTML = `<a href="${S('/files/' + j.xlsx)}">spheroid_measurements.xlsx</a> <span class="muted small">(${j.accepted_rows} accepted, ${j.review_log_rows} log rows; folder ${esc(j.folder)})</span>`;
-  msg('Export written.');
-};
+['tEnv', 'tParts', 'tFill', 'tRemoved'].forEach(id => $('#' + id).onchange = render);
 
 // ---------------------------------------------------------------- start
 setTool('select'); resize();
-api('GET', '/api/config').then(c => { st.config = c; });
+api('GET', '/api/config').then(c => { st.config = c; if (st.step === 'detect') renderDetect(); });
 loadSessions().then(() => {
   const want = new URLSearchParams(location.search).get('session') || localStorage.getItem('lastSession');
   if (want && [...$('#sessionSel').options].some(o => o.value === want)) { $('#sessionSel').value = want; openSession(want); }

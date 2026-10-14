@@ -7,6 +7,9 @@ import threading
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 from .export import export_session
+from .export_groups import export_groups
+from .scalebar import detect_scale_bar
+from .store import load_rgb8
 from .store import ROOT, Session, load_config
 
 SESSIONS_DIR = os.environ.get('SPHEROID_SESSIONS', os.path.join(ROOT, 'sessions'))
@@ -74,7 +77,10 @@ def create_app():
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
                 f.save(tmp.name)
             try:
-                added.append(s.add_image(tmp.name, f.filename))
+                rec = s.add_image(tmp.name, f.filename)
+                if request.form.get('whole_region'):
+                    s.ensure_region(rec['image_id'])
+                added.append(rec)
             finally:
                 os.unlink(tmp.name)
         return ok(dict(added=[a['image_id'] for a in added], summary=s.summary()))
@@ -121,14 +127,15 @@ def create_app():
 
     @app.post('/api/s/<name>/image/<iid>/process')
     def process(name, iid):
-        return ok(get_session(name).process_image(iid))
+        return ok(get_session(name).process_image(iid, whole_region=bool((request.get_json(silent=True) or {}).get('whole_region'))))
 
     @app.post('/api/s/<name>/process_all')
     def process_all(name):
         s = get_session(name)
         j = request.json or {}
         ids = j.get('image_ids') or [i['image_id'] for i in s.data['images']]
-        return ok(s.start_batch(ids, detect_wells_first=bool(j.get('detect_wells_first', True))))
+        return ok(s.start_batch(ids, detect_wells_first=bool(j.get('detect_wells_first', True)),
+                                whole_region=bool(j.get('whole_region'))))
 
     @app.post('/api/s/<name>/image/<iid>/detect_wells')
     def detect_wells(name, iid):
@@ -152,7 +159,8 @@ def create_app():
     @app.post('/api/s/<name>/image/<iid>/objects')
     def add_object(name, iid):
         j = request.json
-        return ok(get_session(name).add_manual_object(iid, j['polygon'], j.get('well_id'), j.get('shape', 'polygon')))
+        return ok(get_session(name).add_manual_object(iid, j['polygon'], j.get('well_id'), j.get('shape', 'polygon'),
+                                                      accept=bool(j.get('accept'))))
 
     @app.post('/api/s/<name>/image/<iid>/object_from_part')
     def object_from_part(name, iid):
@@ -247,9 +255,61 @@ def create_app():
         get_session(name).clear_calibration(iid)
         return ok()
 
+    @app.post('/api/s/<name>/export_full')
+    def export_full(name):
+        return ok(export_session(get_session(name)))
+
     @app.post('/api/s/<name>/export')
     def export(name):
-        return ok(export_session(get_session(name)))
+        s = get_session(name)
+        try:
+            return ok(export_groups(s))
+        except ValueError as e:
+            return jsonify(error=str(e), blockers=s.export_blockers()), 409
+
+    @app.put('/api/s/<name>/labels')
+    def labels(name):
+        j = request.json
+        get_session(name).set_labels(j['image_ids'], j['labels'])
+        return ok()
+
+    @app.put('/api/s/<name>/hidden')
+    def hidden(name):
+        j = request.json
+        get_session(name).set_hidden(j['image_ids'], bool(j['hidden']))
+        return ok()
+
+    @app.post('/api/s/<name>/image/<iid>/status_all')
+    def status_all(name, iid):
+        j = request.json
+        return ok(dict(changed=get_session(name).set_status_many(iid, j['status'], j.get('only_status'))))
+
+    @app.get('/api/s/<name>/image/<iid>/thumb')
+    def thumb(name, iid):
+        s = get_session(name)
+        im = s.image(iid)
+        rel = os.path.join('display', f'thumb_{iid}.jpg')
+        p = s.abspath(rel)
+        if not os.path.exists(p):
+            from PIL import Image
+            a = load_rgb8(s.abspath(im['stored_path']))
+            t = Image.fromarray(a)
+            t.thumbnail((360, 270))
+            t.save(p, quality=80)
+        return send_file(p, max_age=86400)
+
+    @app.post('/api/s/<name>/image/<iid>/detect_scale')
+    def detect_scale_ep(name, iid):
+        s = get_session(name)
+        im = s.image(iid)
+        r = detect_scale_bar(load_rgb8(s.abspath(im['stored_path'])))
+        return ok(r)
+
+    @app.post('/api/s/<name>/scale')
+    def set_scale(name):
+        j = request.json
+        c = get_session(name).set_session_scale(j['line'], j['known_length'], j['unit'], j['source_image_id'])
+        return ok(c)
 
     @app.get('/api/s/<name>/files/<path:rel>')
     def session_file(name, rel):

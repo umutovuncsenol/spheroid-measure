@@ -223,6 +223,9 @@ def _drop_collinear(c):
     return c[keep] if keep.sum() >= 3 else c
 
 
+from .labels import parse_labels, clean_labels, labels_complete
+
+
 class Session:
     def __init__(self, root):
         self.root = os.path.abspath(root)
@@ -233,6 +236,10 @@ class Session:
         if os.path.exists(self.path):
             with open(self.path, encoding='utf-8') as f:
                 self.data = json.load(f)
+            for im in self.data.get('images', []):      # sessions made before photo labels / hiding existed
+                im.setdefault('hidden', False)
+                if 'labels' not in im:
+                    im['labels'] = parse_labels(im.get('original_filename', ''))
         else:
             os.makedirs(self.root, exist_ok=True)
             for d in ('originals', 'display', 'parts', 'masks', 'references', 'exports'):
@@ -298,6 +305,7 @@ class Session:
                    sha256=digest, width=W, height=H, mode=mode, added=now(), profile=cfg['default_profile'],
                    calibration_id=None, wells=[], processing=dict(status='not_processed'), image_flags=[],
                    notes='', review_done=False, used_for_tuning=False, preset_applied=None, well_detection=None,
+                   hidden=False, labels=parse_labels(original_filename),
                    events=[[now(), 'uploaded', None]])
         for p in load_presets():
             if p['filename'] == original_filename and p['sha256'] == digest:
@@ -317,8 +325,78 @@ class Session:
         else:
             with self.lock:
                 self.data['images'].append(rec)
+        cid = self.data.get('scale_cal_id')
+        if cid:
+            self.apply_calibration(cid, [image_id], True)
         self.save()
         return rec
+
+    # ------------------------------------------------------------------ photo labels / hiding
+    def set_labels(self, image_ids, labels):
+        """Set (partial) labels on one or many photos. Unknown keys are ignored, bad values raise."""
+        lb = clean_labels(labels)
+        with self.lock:
+            for iid in image_ids:
+                im = self.image(iid)
+                im['labels'] = dict(im.get('labels') or parse_labels(''), **lb)
+                self._event(iid, 'labels', None)
+            self.save()
+        return lb
+
+    def set_hidden(self, image_ids, hidden):
+        """Hide / show photos. Hidden photos stay in the session (nothing is deleted) but are skipped by
+        detection, review, scale application and export."""
+        with self.lock:
+            for iid in image_ids:
+                self.image(iid)['hidden'] = bool(hidden)
+                self._event(iid, 'hidden' if hidden else 'shown', None)
+            self.save()
+
+    def visible_ids(self):
+        return [i['image_id'] for i in self.data['images'] if not i.get('hidden')]
+
+    def review_counts(self, image_id):
+        c = dict(total=0, unreviewed=0, accepted=0, rejected=0)
+        for o in self.data['objects'].values():
+            if o['image_id'] == image_id:
+                c['total'] += 1
+                c[o['status']] += 1
+        return c
+
+    def reviewed(self, image_id):
+        """Derived 'review complete': processed and no object is left in 'to review'."""
+        im = self.image(image_id)
+        return im['processing'].get('status') == 'processed' and self.review_counts(image_id)['unreviewed'] == 0
+
+    def ensure_region(self, image_id):
+        """Wells are not part of the researcher's workflow: every photo gets ONE hidden region covering
+        the whole image (the region the segmenters and the drawing tools work in)."""
+        with self.lock:
+            im = self.image(image_id)
+            if not im['wells']:
+                self.whole_image_region(image_id)
+
+    def export_blockers(self):
+        """Why the grouped Excel cannot be produced yet (empty list = ready)."""
+        with self.lock:
+            out = dict(unprocessed=[], to_review=0, to_review_images=[], missing_labels=[], scale=[])
+            vis = [i for i in self.data['images'] if not i.get('hidden')]
+            for im in vis:
+                iid = im['image_id']
+                if im['processing'].get('status') != 'processed':
+                    out['unprocessed'].append(iid)
+                n = self.review_counts(iid)['unreviewed']
+                if n:
+                    out['to_review'] += n
+                    out['to_review_images'].append(iid)
+                if not labels_complete(im.get('labels')):
+                    out['missing_labels'].append(iid)
+                if self.calibration_state(iid)['status'] != 'confirmed':
+                    out['scale'].append(iid)
+            out['n_visible'] = len(vis)
+            out['ready'] = bool(vis) and not (out['unprocessed'] or out['to_review'] or out['missing_labels']
+                                              or out['scale'])
+            return out
 
     def set_profile(self, image_id, profile):
         cfg = load_config()
@@ -451,6 +529,31 @@ class Session:
                     if iid not in lst:
                         lst.append(iid)
             self.save()
+
+    # ------------------------------------------------------------------ one scale for the whole session
+    def set_session_scale(self, line, known_length, unit, source_image_id):
+        """The researcher confirmed the scale bar on ONE photo; the same scale is used for every photo of
+        the session (hidden ones included, so restoring a photo needs no extra step). Measurements are
+        converted to um when they are read, so changing the scale later re-scales every object."""
+        cal = self.add_calibration(source_image_id, line, known_length, unit, confirmed=True,
+                                   note='session scale (confirmed by researcher)')
+        with self.lock:
+            self.data['scale_cal_id'] = cal['cal_id']
+            self.apply_calibration(cal['cal_id'], [i['image_id'] for i in self.data['images']], True)
+        return cal
+
+    def scale_state(self):
+        with self.lock:
+            cid = self.data.get('scale_cal_id')
+            c = self.data['calibrations'].get(cid) if cid else None
+            if not c:
+                return dict(status='none', um_per_px=None, cal_id=None)
+            src = self.image(c['source_image_id'])
+            odd = [i['image_id'] for i in self.data['images']
+                   if (i['width'], i['height']) != (src['width'], src['height'])]
+            return dict(status='confirmed', um_per_px=c['um_per_px'], cal_id=cid, line=c['line'],
+                        known_length=c['known_length'], unit=c['unit'], source_image_id=c['source_image_id'],
+                        different_size=odd)
 
     def clear_calibration(self, image_id):
         with self.lock:
@@ -608,11 +711,13 @@ class Session:
         return o
 
     # ------------------------------------------------------------------ automatic detection
-    def process_image(self, image_id):
+    def process_image(self, image_id, whole_region=False):
         """Run the configured segmenter on every well of one image. Keeps reviewed, manual
         and edited objects; replaces only unreviewed, unedited automatic ones."""
         im = self.image(image_id)
         _prof = load_config()['profiles'][im['profile']]
+        if whole_region and not im['wells']:
+            self.ensure_region(image_id)
         if _prof['params'].get('whole_image'):
             # whole-image models (Cellpose) do not need wells: use one region covering the image
             ws = im['wells']
@@ -821,7 +926,8 @@ class Session:
         for iid in image_ids:
             self.set_profile(iid, profile)
 
-    def start_batch(self, image_ids, detect_wells_first=True):
+    def start_batch(self, image_ids, detect_wells_first=True, whole_region=False):
+        image_ids = [i for i in image_ids if not self.image(i).get('hidden')]
         with self.lock:
             if self.job['running']:
                 raise RuntimeError('a batch is already running')
@@ -834,7 +940,7 @@ class Session:
                 try:
                     if detect_wells_first and not self.image(iid)['wells'] and not load_config()['profiles'][self.image(iid)['profile']]['params'].get('whole_image'):
                         self.detect_wells(iid)
-                    self.process_image(iid)
+                    self.process_image(iid, whole_region=whole_region)
                 except Exception as e:  # keep going; report per image
                     self.job['errors'].append(dict(image_id=iid, error=repr(e)))
                     with self.lock:
@@ -1048,7 +1154,7 @@ class Session:
             self.save()
             return o
 
-    def add_manual_object(self, image_id, polygon, well_id=None, shape='polygon'):
+    def add_manual_object(self, image_id, polygon, well_id=None, shape='polygon', accept=False):
         shape = shape if shape in SHAPES else 'polygon'
         with self.lock, self._undoable(image_id, f'new object ({shape})'):
             im = self.image(image_id)
@@ -1067,6 +1173,10 @@ class Session:
                 raise ValueError('polygon covers no pixel centre')
             self._store_mask(o, full, (box[0], box[1]))
             o['history'][-1]['action'] = f'created (manual, drawn {shape}, {len(polygon)} vertices)'
+            if accept:      # the researcher drew it themselves: that is the decision
+                o['status'] = 'accepted'
+                o['approval'] = dict(status='accepted', by='', at=now(), mask_version=o.get('mask_version'),
+                                     mask_sha256=o.get('mask_sha256'), proximity_parts=0)
             self.data['objects'][o['object_id']] = o
             self._event(image_id, 'manual_polygon_object', o['object_id'])
             self.save()
@@ -1156,6 +1266,21 @@ class Session:
             self._event(o['image_id'], status, object_id)
             self.save()
             return o
+
+    def set_status_many(self, image_id, status, only_status=None):
+        """Approve all remaining / reset all decisions of one photo in ONE undo step."""
+        n = 0
+        with self.lock, self._undoable(image_id, {'accepted': 'approve all remaining',
+                                                    'unreviewed': 'reset all decisions'}.get(status, 'set status')):
+            for o in sorted((o for o in self.data['objects'].values() if o['image_id'] == image_id),
+                            key=lambda o: o['object_id']):
+                if only_status and o['status'] != only_status:
+                    continue
+                if o['status'] == status or (status == 'accepted' and not o['measure_px']):
+                    continue
+                self.set_status(o['object_id'], status)
+                n += 1
+        return n
 
     def set_object_meta(self, object_id, notes=None, flags=None, well_id=None):
         with self.lock:
@@ -1317,6 +1442,9 @@ class Session:
                 imgs.append(dict(image_id=im['image_id'], original_filename=im['original_filename'],
                                  width=im['width'], height=im['height'], profile=im['profile'],
                                  processing=im['processing'].get('status'), review_done=im['review_done'],
+                                 hidden=bool(im.get('hidden')), labels=im.get('labels') or parse_labels(''),
+                                 labels_complete=labels_complete(im.get('labels')),
+                                 reviewed=im['processing'].get('status') == 'processed' and c['unreviewed'] == 0,
                                  n_wells=len(im['wells']),
                                  n_grid_cells=sum(region_kind(w) == 'grid cell' for w in im['wells']), calibration=self.calibration_state(im['image_id'])['status'],
                                  wells_status=self._wells_status(im),
@@ -1326,4 +1454,6 @@ class Session:
                         calibrations=list(self.data['calibrations'].values()), job=dict(self.job),
                         progress=dict(images_total=len(imgs), images_reviewed=sum(1 for i in imgs if i['review_done']),
                                       objects_total=sum(c['total'] for c in counts.values()),
-                                      objects_unreviewed=sum(c['unreviewed'] for c in counts.values())))
+                                      objects_unreviewed=sum(c['unreviewed'] for c in counts.values())),
+                        scale=self.scale_state(),
+                        blockers=self.export_blockers())
