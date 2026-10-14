@@ -130,3 +130,16 @@ details.inline[open] { background:#fff; }
 .progress { font-size:12px; margin-bottom:4px; display:flex; flex-wrap:wrap; gap:2px 8px; align-items:baseline; }
 .progress .bar { flex-basis:100%; margin:2px 0 0; }
 #left { padding:6px; }
+
+/* ---- one-line header ---- */
+header { flex-wrap:nowrap; gap:10px; padding:5px 10px; }
+header .brand { font-size:14px; white-space:nowrap; }
+header .grp { flex-shrink:0; }
+#stepper { flex:1; min-width:0; justify-content:center; gap:0; overflow:hidden; }
+#stepper button { padding:3px 7px; white-space:nowrap; font-size:13px; }
+#stepper button .n { width:17px; height:17px; line-height:17px; margin-right:4px; }
+#stepper .sep { margin:0 1px; }
+header .right { margin-left:0; }
+header .right #btnExport { white-space:nowrap; }
+@media (max-width:1250px) { #stepper button .sub { display:none; } header .brand { display:none; } }
+@media (max-width:950px) { #stepper .sep { display:none; } #stepper button { padding:3px 5px; } }
