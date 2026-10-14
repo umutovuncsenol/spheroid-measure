@@ -73,23 +73,25 @@
   <section id="center">
     <div id="toolbar">
       <span class="tools rev-only">
-        <button data-tool="select" title="Select / hover (V). Drag empty space to pan.">Select</button>
-        <button data-tool="brushAdd" title="Brush: add pixels to the selected object (B)">Brush +</button>
-        <button data-tool="brushErase" title="Brush: erase pixels from the selected object (E)">Brush −</button>
-        <button data-tool="polyNew" title="Draw your own object with the chosen shape (D)">Draw: new</button>
-        <button data-tool="polyAdd" title="Draw a shape and ADD it to the selected object">Draw +</button>
-        <button data-tool="polyErase" title="Draw a shape and ERASE it from the selected object">Draw −</button>
-        <select id="drawShape" title="Shape for the Draw tools (as in ImageJ): polygon = click vertices, double-click/Enter to finish; freehand = drag; ellipse / rectangle = drag a box (Shift: circle / square)">
-          <option value="polygon">polygon</option><option value="freehand">freehand</option>
-          <option value="ellipse">ellipse</option><option value="rectangle">rectangle</option></select>
-        <button data-tool="assign" title="Click a dashed part to assign it to the selected object; click an owned part to remove it">Assign parts</button>
+        <span class="tg"><button data-tool="select" title="Select / hover (V). Drag empty space to pan.">Select</button></span>
+        <span class="tg"><span class="tl">Draw your own</span>
+          <button data-tool="polyNew" title="Draw a new object that is not detected (D)">New object</button>
+          <select id="drawShape" title="Shape: polygon = click vertices, double-click/Enter to finish; freehand = drag; ellipse / rectangle = drag a box (Shift: circle / square)">
+            <option value="polygon">polygon</option><option value="freehand">freehand</option>
+            <option value="ellipse">ellipse</option><option value="rectangle">rectangle</option></select></span>
+        <span class="tg" id="fixGroup"><span class="tl">Fix selected object</span>
+          <button data-tool="brushAdd" title="Brush: add pixels to the selected object (B)">Brush +</button>
+          <button data-tool="brushErase" title="Brush: erase pixels from the selected object (E)">Brush −</button>
+          <input id="brushR" type="number" value="6" min="1" max="200" step="1" style="width:3.6em" title="Brush radius in pixels">
+          <button data-tool="polyAdd" title="Draw a shape and ADD it to the selected object">Draw +</button>
+          <button data-tool="polyErase" title="Draw a shape and ERASE it from the selected object">Draw −</button>
+          <button data-tool="assign" title="Click a dashed part to assign it to the selected object; click an owned part to remove it">Parts</button></span>
       </span>
       <span class="tools scale-only">
         <button data-tool="scale" title="Draw the scale line by hand along the scale bar">Draw line by hand</button>
         <button data-tool="select" id="panTool" title="Pan (drag) and zoom (wheel)">Pan</button>
       </span>
-      <button id="btnUndo" class="rev-only" title="Undo the last edit on this image (Ctrl+Z / ⌘Z)" disabled>↶ Undo</button>
-      <label class="rev-only">Brush r <input id="brushR" type="number" value="6" min="1" max="200" step="1" style="width:4em"> px</label>
+      <button id="btnUndo" class="rev-only tg" title="Undo the last edit on this image (Ctrl+Z / ⌘Z)" disabled>↶ Undo</button>
       <span class="zoom">
         <button id="zOut">−</button><button id="zIn">+</button><button id="zFit">Fit</button><button id="z1">1:1</button>
       </span>

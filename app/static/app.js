@@ -153,9 +153,8 @@ async function refreshSummary() {
   st.summary = await api('GET', S('/summary'));
   const p = st.summary.progress, v = visImgs();
   const done = v.filter(i => i.reviewed).length;
-  $('#progress').innerHTML = `<b>${esc(st.summary.name)}</b><br>Photos reviewed: ${done}/${v.length}
-    <div class="bar"><i style="width:${v.length ? 100 * done / v.length : 0}%"></i></div>
-    To review: ${st.summary.blockers.to_review} object(s)`;
+  $('#progress').innerHTML = `<span><b>${done}/${v.length}</b> photos done</span><span class="muted">${st.summary.blockers.to_review} to review</span>
+    <div class="bar"><i style="width:${v.length ? 100 * done / v.length : 0}%"></i></div>`;
   renderImageList();
   if (st.step === 'photos') renderPhotos();
   if (st.step === 'detect') renderDetect();
@@ -165,18 +164,16 @@ async function refreshSummary() {
 function renderImageList() {
   const only = $('#onlyTodo').checked && st.step === 'review';
   const list = visImgs().filter(im => !only || im.objects.unreviewed || im.processing !== 'processed');
-  $('#imageList').innerHTML = list.map((im, i) => {
-    const o = im.objects, b = [];
+  $('#imageList').innerHTML = list.map(im => {
+    const o = im.objects; let b = '';
     if (st.step === 'review') {
-      b.push(im.processing === 'processed' ? `<span class="badge">${o.total} obj</span>` : `<span class="badge warn">${esc(im.processing)}</span>`);
-      if (o.accepted) b.push(`<span class="badge ok">${o.accepted} ✓</span>`);
-      if (o.rejected) b.push(`<span class="badge bad">${o.rejected} ✗</span>`);
-      if (o.unreviewed) b.push(`<span class="badge warn">${o.unreviewed} to review</span>`);
-      if (im.reviewed) b.push('<span class="badge acc">done</span>');
-    } else b.push(im.labels_complete ? '' : '<span class="badge warn">needs labels</span>');
-    return `<li data-id="${im.image_id}" class="${im.image_id === st.imageId ? 'cur' : ''}">
+      if (im.processing !== 'processed') b = `<span class="badge warn">${esc(im.processing)}</span>`;
+      else if (o.unreviewed) b = `<span class="badge warn">${o.unreviewed} to review</span>`;
+      else b = '<span class="badge ok">done ✓</span>';
+    } else if (!im.labels_complete) b = '<span class="badge warn">needs labels</span>';
+    return `<li data-id="${im.image_id}" class="${im.image_id === st.imageId ? 'cur' : ''}" title="${esc(im.original_filename)}">
       <div class="fn">${esc(im.original_filename)}</div>
-      <div class="small muted">${esc(labText(im.labels))}</div><div>${b.join('')}</div></li>`;
+      <div class="sub"><span>${esc(labText(im.labels))}</span>${b}</div></li>`;
   }).join('') || '<li class="muted">No photos.</li>';
   for (const li of document.querySelectorAll('#imageList li[data-id]')) li.onclick = () => openImage(li.dataset.id);
 }
@@ -200,7 +197,7 @@ async function openImage(id, keepView) {
   document.querySelectorAll('#imageList li').forEach(li => li.classList.toggle('cur', li.dataset.id === id));
   if (st.selected && !st.detail.objects.some(o => o.object_id === st.selected)) st.selected = null;
   updateUndo();
-  $('#empty').hidden = true;
+  $('#empty').hidden = true; fixState();
   if (st.step === 'scale') { renderScale(); if (changed) autoDetectScale(); }
   else renderPanels();
   render();
@@ -667,9 +664,9 @@ function renderObjects() {
   $('#objBox').innerHTML = `<h4>Objects · <span class="${todo ? 'warnline' : ''}">${todo} to review</span> · ${n('accepted')} approved · ${n('rejected')} rejected</h4>
     ${objs.length ? `<div class="row"><button id="btnAllOk" ${todo ? '' : 'disabled'} title="Approve every object of this photo that is still to review">Approve all remaining (${todo})</button>
       <button id="btnAllReset" class="small" ${objs.some(o => o.status !== 'unreviewed') ? '' : 'disabled'} title="Put every decision of this photo back to “to review”">Reset all</button></div>` :
-      '<div class="muted">No objects found. Use “Draw: new” (D) to draw one yourself, or re-run detection.</div>'}
+      '<div class="muted">No objects found. Use “New object” (D) to draw one yourself, or re-run detection.</div>'}
     ${objs.map(o => `<div class="card ${o.object_id === st.selected ? 'sel' : ''}" data-oid="${o.object_id}">
-      <div class="t"><b>${o.object_id}</b><span class="small muted">${o.source === 'manual' ? 'drawn by you' : 'detected'}${o.edited ? ' · edited' : ''}</span>
+      <div class="t"><b>${o.object_id}</b><span class="small muted">${[o.source === 'manual' ? 'drawn by you' : '', o.edited ? 'edited' : ''].filter(Boolean).join(' · ')}</span>
         <span class="badge ${o.status === 'accepted' ? 'ok' : o.status === 'rejected' ? 'bad' : 'warn'}">${o.status === 'unreviewed' ? 'to review' : o.status === 'accepted' ? 'approved' : 'rejected'}</span></div>
       ${measure4(o)}
       ${flagList(o).length ? `<div class="small warnline">${flagList(o).join(' · ')}</div>` : ''}
@@ -689,8 +686,9 @@ function renderObjects() {
     const del = card.querySelector('[data-del]'); if (del) del.onclick = async () => { if (confirm('Delete your drawn object ' + oid + '?')) { await api('DELETE', S(`/object/${oid}`)); if (st.selected === oid) st.selected = null; reload(); } };
   }
 }
+function fixState() { const g = $('#fixGroup'); if (g) g.classList.toggle('off', !st.selected); }
 function select(oid) {
-  st.selected = oid; renderObjects(); render();
+  st.selected = oid; fixState(); renderObjects(); render();
   const c = document.querySelector(`.card[data-oid="${oid}"]`); if (c) c.scrollIntoView({ block: 'nearest' });
 }
 async function setStatus(oid, status) {

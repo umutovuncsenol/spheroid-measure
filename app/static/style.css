@@ -115,3 +115,18 @@ details.inline > summary { display:inline; text-transform:none; letter-spacing:0
 details.inline[open] { background:#fff; }
 .chip { display:inline-block; padding:0 6px; border-radius:8px; font-size:11px; background:#eef0f3; margin-right:3px; }
 .crumb { margin:2px 0 6px; }
+
+/* ---- toolbar groups, compact photo list ---- */
+#toolbar { gap:6px 14px; }
+.tg { display:inline-flex; gap:4px; align-items:center; padding:0 10px 0 0; margin-right:2px; border-right:1px solid var(--line); }
+.tg:last-child { border-right:none; }
+.tg .tl { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-right:2px; }
+#fixGroup.off button, #fixGroup.off input { opacity:.45; }
+#toolbar .tools { display:flex; gap:6px 4px; flex-wrap:wrap; align-items:center; }
+#imageList li { padding:4px 7px; margin-bottom:2px; display:flex; flex-direction:column; gap:1px; }
+#imageList .fn { font-weight:500; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; word-break:normal; }
+#imageList .sub { display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+#imageList .sub .badge { margin:0; }
+.progress { font-size:12px; margin-bottom:4px; display:flex; flex-wrap:wrap; gap:2px 8px; align-items:baseline; }
+.progress .bar { flex-basis:100%; margin:2px 0 0; }
+#left { padding:6px; }
