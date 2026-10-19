@@ -483,20 +483,25 @@ function render() {
   }
   // objects
   const fill = $('#tFill').checked;
+  const showOverlays = $('#tLabels').checked;
+  const _sorted = [...d.objects].filter(x => x.status === 'accepted').sort((x, y) => x.object_id < y.object_id ? -1 : 1);
   for (const o of d.objects) {
     if (!o.contours) continue;
     const path = pathOf(o.contours);
     const c = COL[o.status];
-    if (fill) { ctx.fillStyle = c + '33'; ctx.fill(path, 'evenodd'); }
-    ctx.strokeStyle = c; ctx.lineWidth = (o.object_id === st.selected) ? 3 : (o.object_id === st.hover ? 2.5 : 1.5);
-    ctx.stroke(path);
-    if ($('#tEnv').checked && o.envelope_contours) { ctx.setLineDash([5, 3]); ctx.lineWidth = 1; ctx.stroke(pathOf(o.envelope_contours)); ctx.setLineDash([]); }
-    const [a, b] = toScr(o.bbox[0], o.bbox[1]);
-    ctx.fillStyle = '#000a';
-    const _sorted = [...d.objects].filter(x => x.status === 'accepted').sort((x, y) => x.object_id < y.object_id ? -1 : 1);
-    const _idx = _sorted.indexOf(o);
-    const label = _idx >= 0 ? 'OBJ ' + (_idx + 1) : o.object_id.replace('OBJ-0000', '').replace('OBJ-', '');
-    ctx.fillRect(a, b - 15, ctx.measureText(label).width + 6, 14); ctx.fillStyle = c; ctx.fillText(label, a + 3, b - 4);
+    if (showOverlays || o.object_id === st.selected || o.object_id === st.hover) {
+      if (fill) { ctx.fillStyle = c + '33'; ctx.fill(path, 'evenodd'); }
+      ctx.strokeStyle = c; ctx.lineWidth = (o.object_id === st.selected) ? 3 : (o.object_id === st.hover ? 2.5 : 1.5);
+      ctx.stroke(path);
+      if ($('#tEnv').checked && o.envelope_contours) { ctx.setLineDash([5, 3]); ctx.lineWidth = 1; ctx.stroke(pathOf(o.envelope_contours)); ctx.setLineDash([]); }
+    }
+    if (showOverlays) {
+      const [a, b] = toScr(o.bbox[0], o.bbox[1]);
+      ctx.fillStyle = '#000a';
+      const _idx = _sorted.indexOf(o);
+      const label = _idx >= 0 ? 'OBJ ' + (_idx + 1) : o.object_id.replace('OBJ-0000', '').replace('OBJ-', '');
+      ctx.fillRect(a, b - 15, ctx.measureText(label).width + 6, 14); ctx.fillStyle = c; ctx.fillText(label, a + 3, b - 4);
+    }
   }
   // in-progress drawing
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
@@ -928,7 +933,7 @@ window.addEventListener('keydown', e => {
   else if (k === '+' || k === '=') zoomAt(1.25); else if (k === '-') zoomAt(0.8); else if (k === 'f') fit();
 });
 
-['tEnv', 'tParts', 'tFill', 'tRemoved'].forEach(id => $('#' + id).onchange = render);
+['tEnv', 'tParts', 'tFill', 'tRemoved', 'tLabels'].forEach(id => $('#' + id).onchange = render);
 
 // ---------------------------------------------------------------- start
 setTool('select'); resize();
