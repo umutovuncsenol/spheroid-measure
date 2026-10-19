@@ -279,6 +279,12 @@ def create_app():
         get_session(name).set_hidden(j['image_ids'], bool(j['hidden']))
         return ok()
 
+    @app.delete('/api/s/<name>/images')
+    def delete_images(name):
+        j = request.get_json(force=True)
+        get_session(name).delete_images(j['image_ids'])
+        return ok()
+
     @app.post('/api/s/<name>/image/<iid>/status_all')
     def status_all(name, iid):
         j = request.json

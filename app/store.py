@@ -352,6 +352,35 @@ class Session:
                 self._event(iid, 'hidden' if hidden else 'shown', None)
             self.save()
 
+    def delete_images(self, image_ids):
+        """Permanently remove photos and all associated data from the session."""
+        with self.lock:
+            for iid in image_ids:
+                im = self.image(iid)
+                # remove associated objects and their masks
+                to_del = [oid for oid, o in self.data['objects'].items() if o['image_id'] == iid]
+                for oid in to_del:
+                    o = self.data['objects'][oid]
+                    for suffix in ('', '_auto'):
+                        p = self.abspath(o.get('mask_file', '').replace('.png', suffix + '.png'))
+                        if os.path.exists(p):
+                            os.remove(p)
+                    del self.data['objects'][oid]
+                # remove files on disk
+                for subdir in ('originals', 'parts', 'masks', 'references'):
+                    d = self.abspath(os.path.join(subdir, iid))
+                    if os.path.isdir(d):
+                        shutil.rmtree(d)
+                if im.get('display_path'):
+                    p = self.abspath(im['display_path'])
+                    if os.path.exists(p):
+                        os.remove(p)
+                undo_p = self._undo_path(iid)
+                if os.path.exists(undo_p):
+                    os.remove(undo_p)
+                self.data['images'] = [i for i in self.data['images'] if i['image_id'] != iid]
+            self.save()
+
     def visible_ids(self):
         return [i['image_id'] for i in self.data['images'] if not i.get('hidden')]
 

@@ -217,6 +217,14 @@ function renderUploadInfo() {
 async function uploadFiles(files) {
   if (!st.session) return msg('Create or open a session first', true);
   files = [...files].filter(f => /\.(jpe?g|png|tiff?|bmp)$/i.test(f.name)); if (!files.length) return msg('No image files found', true);
+  if (st.summary && st.summary.images) {
+    const existing = new Set(st.summary.images.map(i => i.original_filename));
+    const dups = files.filter(f => existing.has(f.name)).map(f => f.name);
+    if (dups.length) {
+      const list = dups.slice(0, 3).join(', ') + (dups.length > 3 ? ` ve ${dups.length - 3} diğeri` : '');
+      if (!confirm(`Bu görsel(ler) zaten yüklendi: ${list}\n\nYine de devam etmek istiyor musun?`)) return;
+    }
+  }
   for (let i = 0; i < files.length; i += 10) {           // small chunks keep memory and request size low
     const fd = new FormData(); files.slice(i, i + 10).forEach(f => fd.append('files', f, f.name)); fd.append('whole_region', '1');
     $('#uploadStatus').textContent = `Uploading ${Math.min(i + 10, files.length)}/${files.length}…`;
@@ -291,6 +299,12 @@ $('#bHide').onclick = async () => {
   const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
   await api('PUT', S('/hidden'), { image_ids: ids, hidden: true }); st.phSel = new Set();
   msg(`${ids.length} photo(s) hidden. Tick "show hidden" to restore them.`); refreshSummary();
+};
+$('#bDelete').onclick = async () => {
+  const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
+  if (!confirm(`Permanently delete ${ids.length} photo(s)? This cannot be undone.`)) return;
+  await api('DELETE', S('/images'), { image_ids: ids }); st.phSel = new Set();
+  msg(`${ids.length} photo(s) deleted.`); refreshSummary();
 };
 
 // ---------------------------------------------------------------- 3 · scale
@@ -478,7 +492,10 @@ function render() {
     ctx.stroke(path);
     if ($('#tEnv').checked && o.envelope_contours) { ctx.setLineDash([5, 3]); ctx.lineWidth = 1; ctx.stroke(pathOf(o.envelope_contours)); ctx.setLineDash([]); }
     const [a, b] = toScr(o.bbox[0], o.bbox[1]);
-    ctx.fillStyle = '#000a'; const label = o.object_id.replace('OBJ-0000', '').replace('OBJ-', '');
+    ctx.fillStyle = '#000a';
+    const _sorted = [...d.objects].filter(x => x.status === 'accepted').sort((x, y) => x.object_id < y.object_id ? -1 : 1);
+    const _idx = _sorted.indexOf(o);
+    const label = _idx >= 0 ? 'OBJ ' + (_idx + 1) : o.object_id.replace('OBJ-0000', '').replace('OBJ-', '');
     ctx.fillRect(a, b - 15, ctx.measureText(label).width + 6, 14); ctx.fillStyle = c; ctx.fillText(label, a + 3, b - 4);
   }
   // in-progress drawing

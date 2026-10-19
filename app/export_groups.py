@@ -47,16 +47,17 @@ def collect(session):
             continue
         s = cal['um_per_px']
         key = (lb['day'], lb['shape'], lb['size'], lb['conc'])
-        for o in sorted((o for o in session.data['objects'].values() if o['image_id'] == im['image_id']),
-                        key=lambda o: o['object_id']):
-            if o['status'] != 'accepted' or not o.get('measure_px'):
-                continue
+        img_objs = sorted(
+            (o for o in session.data['objects'].values()
+             if o['image_id'] == im['image_id'] and o['status'] == 'accepted' and o.get('measure_px')),
+            key=lambda o: o['object_id'])
+        for idx, o in enumerate(img_objs, 1):
             m = o['measure_px'][REGION]
             if not m:
                 continue
             groups.setdefault(key, []).append(dict(
                 area=m['area'] * s * s, perimeter=m['perimeter'] * s, ecd=m['ecd'] * s,
-                circularity=m['circularity'], image=im['original_filename'], object=o['object_id']))
+                circularity=m['circularity'], image=im['original_filename'], object=f'OBJ {idx}'))
     return groups
 
 
@@ -68,7 +69,8 @@ def _day_sheet(wb, day, groups):
     ws = wb.create_sheet(f'{day}. Gün')
     shapes = [sh for sh in SHAPES if any(k[0] == day and k[1] == sh for k in groups)]
     concs = CONCS
-    width = len(concs) * 4
+    cols_per_conc = 6  # Görsel + Obje + Alan + Çevre + Çap + Çembersellik
+    width = len(concs) * cols_per_conc
     ws.cell(1, 1, f'{day}. Gün').font = B
     row = 3
     for size in SIZES:
@@ -85,34 +87,44 @@ def _day_sheet(wb, day, groups):
             ws.cell(row, c0).alignment = CENTER
             ws.cell(row, c0).fill = FILL
             for ci, conc in enumerate(concs):
-                cc = c0 + ci * 4
+                cc = c0 + ci * cols_per_conc
                 ws.cell(row + 1, cc, conc).font = B
-                ws.merge_cells(start_row=row + 1, start_column=cc, end_row=row + 1, end_column=cc + 3)
+                ws.merge_cells(start_row=row + 1, start_column=cc, end_row=row + 1, end_column=cc + cols_per_conc - 1)
                 ws.cell(row + 1, cc).alignment = CENTER
                 ws.cell(row + 1, cc).fill = FILL2
+                for hdr, hcol in [('Görsel', cc), ('Obje', cc + 1)]:
+                    h = ws.cell(row + 2, hcol, hdr); h.font = B; h.alignment = CENTER
                 for mi, (title, _, _) in enumerate(METRICS):
-                    h = ws.cell(row + 2, cc + mi, title)
-                    h.font = B
-                    h.alignment = CENTER
+                    h = ws.cell(row + 2, cc + 2 + mi, title)
+                    h.font = B; h.alignment = CENTER
                 vals = groups.get((day, sh, size, conc), [])
                 for ri, v in enumerate(vals):
+                    ws.cell(row + 3 + ri, cc, v['image']).font = F
+                    ws.cell(row + 3 + ri, cc + 1, v['object']).font = F
                     for mi, (_, key, nd) in enumerate(METRICS):
-                        ws.cell(row + 3 + ri, cc + mi, _r(v[key], nd)).font = F
+                        ws.cell(row + 3 + ri, cc + 2 + mi, _r(v[key], nd)).font = F
                 first, last = row + 3, row + 2 + max(nmax, 1)
                 for mi in range(4):
-                    col = L(cc + mi)
+                    col = L(cc + 2 + mi)
                     rng = f'{col}{first}:{col}{last}'
                     nd = METRICS[mi][2]
-                    a = ws.cell(last + 2, cc + mi, f'=IFERROR(ROUND(AVERAGE({rng}),{nd}),"")')
-                    d = ws.cell(last + 3, cc + mi, f'=IFERROR(ROUND(STDEV({rng}),{nd}),"")')
+                    a = ws.cell(last + 2, cc + 2 + mi, f'=IFERROR(ROUND(AVERAGE({rng}),{nd}),"")')
+                    d = ws.cell(last + 3, cc + 2 + mi, f'=IFERROR(ROUND(STDEV({rng}),{nd}),"")')
                     a.font = d.font = B
         last = row + 2 + max(nmax, 1)
         ws.cell(last + 2, 1, 'Ortalama').font = B
         ws.cell(last + 3, 1, 'SD').font = B
         row = last + 6
     ws.column_dimensions['A'].width = 12
+    ws.column_dimensions[L(2)].width = 22  # Görsel column of first group
     for c in range(2, 2 + max(len(shapes), 1) * (width + 1)):
         ws.column_dimensions[L(c)].width = 11
+    # widen Görsel and Obje columns
+    for si in range(len(shapes)):
+        for ci in range(len(concs)):
+            gc = 2 + si * (width + 1) + ci * cols_per_conc
+            ws.column_dimensions[L(gc)].width = 22
+            ws.column_dimensions[L(gc + 1)].width = 10
     ws.freeze_panes = 'B3'
     return ws
 
