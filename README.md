@@ -10,7 +10,7 @@ A local app for proposing wells and spheroid candidates in microwell images, rev
 > - Measurements, calibration rules, editing, saving and export are tested.
 > - Automatic well detection and cell segmentation are **classical image processing, not validated** against researcher-approved boundaries. See [docs/EVALUATION.md](docs/EVALUATION.md) for overlays, failure cases and correction effort on 11 real images.
 
-## Kurulum (Biyologlar için — tek seferlik)
+## Kurulum (tek seferlik)
 
 ### 1. Repoyu indir
 ```bash
