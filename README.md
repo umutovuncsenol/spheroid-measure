@@ -10,27 +10,27 @@ A local app for proposing wells and spheroid candidates in microwell images, rev
 > - Measurements, calibration rules, editing, saving and export are tested.
 > - Automatic well detection and cell segmentation are **classical image processing, not validated** against researcher-approved boundaries. See [docs/EVALUATION.md](docs/EVALUATION.md) for overlays, failure cases and correction effort on 11 real images.
 
-## Kurulum (tek seferlik)
+## Installation (Non-technical users — one time only)
 
-### 1. Repoyu indir
+### 1. Clone the repository
 ```bash
 git clone https://github.com/umutovuncsenol/spheroid-measure.git
 ```
 
-### 2. Kurulum scriptini çalıştır
+### 2. Run the installer
 
-| Sistem | Yapılacak |
+| System | What to do |
 |---|---|
-| macOS | Terminalde: `bash spheroid-measure/install.sh` |
-| Windows | `install.bat` dosyasına çift tıkla |
+| macOS | In Terminal: `bash spheroid-measure/install.sh` |
+| Windows | Double-click `install.bat` |
 
-İlk kurulum 5–10 dakika sürer (internet bağlantısı gerekli).
+First-time setup takes 5–10 minutes and requires an internet connection.
 
-### 3. Uygulamayı aç
+### 3. Open the app
 
-Kurulum bittikten sonra masaüstünde **`Sferoid Measure`** dosyası oluşur.  
-Bundan sonra her zaman ona çift tıklamak yeterli.  
-Uygulama her açılışta güncellemeleri otomatik kontrol eder.
+After installation, a **`Sferoid Measure`** shortcut appears on your Desktop.  
+From now on, just double-click it to launch the app.  
+Updates are downloaded automatically every time you open it.
 
 ---
 
