@@ -98,6 +98,8 @@ body[data-step=scale] #work { grid-template-columns: 230px 1fr 380px; }
 .pcard .top > * { pointer-events:auto; }
 .pcard .top label { background:#fffd; border-radius:4px; padding:1px 5px; }
 .pcard .top button { background:#fffd; padding:1px 7px; }
+.pcard .top .acts { display:flex; gap:4px; }
+.pcard .top button.del { color:#c00; }
 .panelcard { background:#fff; border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin:8px 0; max-width:900px; }
 .listrow { display:flex; gap:10px; align-items:center; padding:5px 8px; border-bottom:1px solid var(--line); background:#fff; }
 .listrow .fn { flex:1; word-break:break-all; }

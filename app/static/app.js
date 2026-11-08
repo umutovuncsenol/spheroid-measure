@@ -258,7 +258,8 @@ function renderPhotos() {
     return `<div class="pcard ${!im.labels_complete && !im.hidden ? 'need' : ''} ${sel.has(im.image_id) ? 'sel' : ''} ${im.hidden ? 'hid' : ''}" data-id="${im.image_id}">
       <img loading="lazy" src="${S('/image/' + im.image_id + '/thumb')}" alt="">
       <div class="top"><label class="small"><input type="checkbox" data-pick ${sel.has(im.image_id) ? 'checked' : ''}></label>
-        <button class="small" data-hide="${im.hidden ? 0 : 1}">${im.hidden ? 'Restore' : 'Hide'}</button></div>
+        <span class="acts"><button class="small" data-hide="${im.hidden ? 0 : 1}">${im.hidden ? 'Restore' : 'Hide'}</button>
+        <button class="small del" data-del title="Delete this photo">Delete</button></span></div>
       <div class="fn">${esc(im.original_filename)}</div>
       <div class="lab">
         <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + [1, 3, 5, 7].map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
@@ -268,6 +269,9 @@ function renderPhotos() {
       </div></div>`;
   }).join('') || '<div class="muted">Nothing to show.</div>';
   $('#phSel').textContent = `${sel.size} selected`;
+  const hidN = all.length - v.length;
+  $('#bDelNeed').hidden = !need; $('#bDelNeed').textContent = `Delete unlabeled (${need})`;
+  $('#bDelHidden').hidden = !hidN; $('#bDelHidden').textContent = `Delete hidden (${hidN})`;
   $('#phAll').checked = shown.length > 0 && sel.size === shown.length;
   document.querySelectorAll('#phGrid .pcard').forEach(card => {
     const id = card.dataset.id;
@@ -277,6 +281,7 @@ function renderPhotos() {
     card.querySelector('[data-hide]').onclick = async e => {
       await api('PUT', S('/hidden'), { image_ids: [id], hidden: e.target.dataset.hide === '1' }); st.phSel.delete(id); refreshSummary();
     };
+    card.querySelector('[data-del]').onclick = () => deletePhotos([id]);
     card.querySelectorAll('select[data-k]').forEach(sl => sl.onchange = async () => {
       const k = sl.dataset.k; await api('PUT', S('/labels'), { image_ids: [id], labels: { [k]: sl.value === '' ? null : sl.value } }); refreshSummary();
     });
@@ -302,17 +307,36 @@ $('#bHide').onclick = async () => {
   if (ids.includes(st.imageId)) { act.pending = 0; act.image = null; st.imageId = null; st.detail = null; st.selected = null; st.img = null; }
   msg(`${ids.length} photo(s) hidden. Tick "show hidden" to restore them.`); refreshSummary();
 };
-$('#bDelete').onclick = async () => {
-  const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
-  if (!confirm(`Permanently delete ${ids.length} photo(s)? This cannot be undone.`)) return;
-  const r = await api('DELETE', S('/images'), { image_ids: ids }); st.phSel = new Set();
+// One delete path for every button: per-photo "Delete", "Delete selected", "Delete unlabeled",
+// "Delete hidden" and the Delete key. The confirmation names the photos so nobody deletes blind.
+async function deletePhotos(ids, what) {
+  if (!ids.length) return msg('Select photos first (tick the boxes).', true);
+  const names = ids.map(id => (st.summary.images.find(i => i.image_id === id) || {}).original_filename || id);
+  const list = names.slice(0, 5).join('\n') + (names.length > 5 ? `\n… and ${names.length - 5} more` : '');
+  if (!confirm(`Delete ${what || (ids.length === 1 ? 'this photo' : ids.length + ' photos')}?\n\n${list}\n\nThis cannot be undone.`)) return;
+  const r = await api('DELETE', S('/images'), { image_ids: ids });
+  ids.forEach(id => st.phSel.delete(id));
   if (ids.includes(st.imageId)) {   // the open photo is gone: forget it so no later request asks for it
     act.pending = 0; act.image = null;
     st.imageId = null; st.detail = null; st.selected = null; st.img = null; st.scaleLine = null;
   }
   const n = (r.deleted || ids).length;
   msg(`${n} photo(s) deleted.`); refreshSummary();
+}
+$('#bDelete').onclick = () => deletePhotos([...st.phSel]);
+$('#bDelNeed').onclick = () => {
+  const ids = visImgs().filter(i => !i.labels_complete).map(i => i.image_id);
+  deletePhotos(ids, `the ${ids.length} photo(s) with missing labels`);
 };
+$('#bDelHidden').onclick = () => {
+  const ids = st.summary.images.filter(i => i.hidden).map(i => i.image_id);
+  deletePhotos(ids, `the ${ids.length} hidden photo(s)`);
+};
+window.addEventListener('keydown', e => {   // Delete / Backspace on the Photos step deletes the ticked photos
+  if (st.step !== 'photos' || !st.phSel.size || !['Delete', 'Backspace'].includes(e.key)) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'checkbox') return;
+  e.preventDefault(); deletePhotos([...st.phSel]);
+});
 
 // ---------------------------------------------------------------- 3 · scale
 async function autoDetectScale() {
