@@ -438,8 +438,9 @@ class Session:
                 if self.calibration_state(iid)['status'] != 'confirmed':
                     out['scale'].append(iid)
             out['n_visible'] = len(vis)
-            out['ready'] = bool(vis) and not (out['unprocessed'] or out['to_review'] or out['missing_labels']
-                                              or out['scale'])
+            # labels are optional: photos without complete labels go to the 'Etiketsiz' sheet instead
+            # of the day / shape / size tables, so they are reported but never block the Excel
+            out['ready'] = bool(vis) and not (out['unprocessed'] or out['to_review'] or out['scale'])
             return out
 
     def set_profile(self, image_id, profile):

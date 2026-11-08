@@ -93,7 +93,7 @@ body[data-step=scale] #work { grid-template-columns: 230px 1fr 380px; }
 .pcard .fn { font-size:11px; word-break:break-all; margin:4px 0; color:var(--muted); }
 .pcard .lab { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
 .pcard .lab select { width:100%; padding:2px; }
-.pcard .lab select.miss { border-color:#e0a800; background:#fff8dc; }
+.pcard .lab select.miss { color:var(--muted); }   /* labels are optional: an empty one is not an error */
 .pcard .top { position:absolute; top:12px; left:12px; right:12px; display:flex; justify-content:space-between; pointer-events:none; }
 .pcard .top > * { pointer-events:auto; }
 .pcard .top label { background:#fffd; border-radius:4px; padding:1px 5px; }

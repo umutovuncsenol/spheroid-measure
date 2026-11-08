@@ -72,7 +72,8 @@ function stepInfo(k) {
   if (k === 'upload') return { done: s.images.length > 0, sub: s.images.length ? String(s.images.length) : '' };
   if (k === 'photos') {
     const need = v.filter(i => !i.labels_complete).length, hid = s.images.length - v.length;
-    return { done: v.length > 0 && !need, sub: need ? `${need} need labels` : (hid ? `${hid} hidden` : '') };
+    // labels are optional: the step is done as soon as there is a photo to work on
+    return { done: v.length > 0, sub: need ? `${need} without labels` : (hid ? `${hid} hidden` : '') };
   }
   if (k === 'scale') return { done: s.scale.status === 'confirmed', sub: s.scale.status === 'confirmed' ? `${fmt(s.scale.um_per_px, 3)} µm/px` : '' };
   if (k === 'detect') { const n = v.filter(i => i.processing === 'processed').length; return { done: v.length > 0 && n === v.length, sub: v.length ? `${n}/${v.length}` : '' }; }
@@ -88,7 +89,6 @@ function renderStepper() {
 function blockText(bl) {
   const p = [];
   if (!bl.n_visible) p.push('no visible photos');
-  if (bl.missing_labels.length) p.push(`${bl.missing_labels.length} photo(s) need labels`);
   if (bl.scale.length) p.push('scale not confirmed');
   if (bl.unprocessed.length) p.push(`${bl.unprocessed.length} photo(s) not detected yet`);
   if (bl.to_review) p.push(`${bl.to_review} object(s) still to review in ${bl.to_review_images.length} photo(s)`);
@@ -105,7 +105,6 @@ function renderExportBtn() {
 function autoStep() {
   const s = st.summary, v = visImgs(), bl = s.blockers;
   if (!s.images.length) return 'upload';
-  if (v.some(i => !i.labels_complete)) return 'photos';
   if (s.scale.status !== 'confirmed') return 'scale';
   if (bl.unprocessed.length) return 'detect';
   return 'review';
@@ -171,7 +170,7 @@ function renderImageList() {
       if (im.processing !== 'processed') b = `<span class="badge warn">${esc(im.processing)}</span>`;
       else if (o.unreviewed) b = `<span class="badge warn">${o.unreviewed} to review</span>`;
       else b = '<span class="badge ok">done ✓</span>';
-    } else if (!im.labels_complete) b = '<span class="badge warn">needs labels</span>';
+    } else if (!im.labels_complete) b = '<span class="badge">no labels</span>';
     return `<li data-id="${im.image_id}" class="${im.image_id === st.imageId ? 'cur' : ''}" title="${esc(im.original_filename)}">
       <div class="fn">${esc(im.original_filename)}</div>
       <div class="sub"><span>${esc(labText(im.labels))}</span>${b}</div></li>`;
@@ -249,13 +248,15 @@ function renderPhotos() {
   const s = st.summary; if (!s) return;
   const showHidden = $('#phHidden').checked, needs = $('#phNeeds').checked;
   const all = s.images, v = visImgs(), need = v.filter(i => !i.labels_complete).length;
-  $('#phSummary').textContent = `${all.length} photo(s) · ${all.length - v.length} hidden · ${need} need labels. Hidden photos are kept but skipped by detection, review and Excel.`;
+  $('#phSummary').textContent = `${all.length} photo(s) · ${all.length - v.length} hidden · ${need} without labels. ` +
+    'Labels are optional: photos without them are measured too and listed on a separate "Etiketsiz" sheet in the Excel. ' +
+    'Hidden photos are kept but skipped by detection, review and Excel.';
   let shown = all.filter(i => (showHidden || !i.hidden) && (!needs || (!i.labels_complete && !i.hidden)));
   const sel = st.phSel = new Set([...st.phSel].filter(id => shown.some(i => i.image_id === id)));
   const opt = (vals, cur) => '<option value="">—</option>' + vals.map(x => `<option ${String(x) === String(cur) ? 'selected' : ''}>${x}</option>`).join('');
   $('#phGrid').innerHTML = shown.map(im => {
     const lb = im.labels, miss = k => lb[k] == null ? 'miss' : '';
-    return `<div class="pcard ${!im.labels_complete && !im.hidden ? 'need' : ''} ${sel.has(im.image_id) ? 'sel' : ''} ${im.hidden ? 'hid' : ''}" data-id="${im.image_id}">
+    return `<div class="pcard ${sel.has(im.image_id) ? 'sel' : ''} ${im.hidden ? 'hid' : ''}" data-id="${im.image_id}">
       <img loading="lazy" src="${S('/image/' + im.image_id + '/thumb')}" alt="">
       <div class="top"><label class="small"><input type="checkbox" data-pick ${sel.has(im.image_id) ? 'checked' : ''}></label>
         <span class="acts"><button class="small" data-hide="${im.hidden ? 0 : 1}">${im.hidden ? 'Restore' : 'Hide'}</button>
@@ -293,6 +294,7 @@ $('#phAll').onchange = e => {
   st.phSel = e.target.checked ? new Set(shown.map(i => i.image_id)) : new Set(); renderPhotos();
 };
 $('#phHidden').onchange = renderPhotos; $('#phNeeds').onchange = renderPhotos;
+$('#phNext').onclick = () => go('scale');
 $('#bApply').onclick = async () => {
   const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
   const labels = {};
@@ -792,7 +794,7 @@ $('#btnExport').onclick = async () => {
   try {
     const j = await api('POST', S('/export'));
     const href = S('/files/' + j.xlsx);
-    $('#exportLink').innerHTML = `<a href="${href}">spheroid_measurements.xlsx</a> <span class="muted small">✓ ${j.n_objects} spheroid(s)</span>`;
+    $('#exportLink').innerHTML = `<a href="${href}">spheroid_measurements.xlsx</a> <span class="muted small">✓ ${j.n_objects} spheroid(s)${j.n_unlabeled ? `, ${j.n_unlabeled} on the "Etiketsiz" sheet` : ''}</span>`;
     const a = document.createElement('a'); a.href = href; a.download = 'spheroid_measurements.xlsx'; document.body.appendChild(a); a.click(); a.remove();
     msg('Excel written.');
   } catch (e) { refreshSummary(); }

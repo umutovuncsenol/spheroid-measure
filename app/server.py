@@ -49,9 +49,11 @@ def create_app():
     def not_found(e):
         # str(KeyError('IMG-0056')) is "'IMG-0056'", which tells the user nothing
         what = e.args[0] if e.args else ''
+        if isinstance(what, str) and re.match(r'^[A-Z]+-\d+$', what):     # IMG-0056, OBJ-0012, ...
+            return jsonify(error=f'Not found: {what}. It may have been deleted - reload the page (F5).'), 404
         if isinstance(what, str) and ' ' in what:      # a KeyError raised with a full sentence
             return jsonify(error=what), 400
-        return jsonify(error=f'Not found: {what}. It may have been deleted - reload the page (F5).'), 404
+        return unexpected(e)                           # a missing dict key is a bug: show it as one
 
     @app.errorhandler(Exception)
     def unexpected(e):

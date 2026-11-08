@@ -6,10 +6,13 @@ Layout (follows the lab's own workbook):
                       one row per spheroid, then Ortalama / SD rows written as AVERAGE / STDEV formulas.
   "Analiz"            tables ÇAP, ALAN, ÇEVRE, ÇEMBERSELLİK; per shape: rows = days, columns = size x
                       concentration with mean and SD (static numbers).
+  "Etiketsiz"         photos whose labels (day, shape, well size, concentration) are incomplete: labels are
+                      optional, so their spheroids are listed one per row with whatever labels they have
+                      instead of being dropped. The sheet exists only when there are such photos.
 
 What goes in: approved objects and objects drawn by the researcher (status 'accepted') of photos that are
 not hidden, measured as the 'cells' region in um (Çap = equivalent circular diameter).
-Nothing is written unless Session.export_blockers() is empty.
+Nothing is written unless Session.export_blockers()['ready'] is true.
 """
 import os
 import statistics
@@ -35,18 +38,24 @@ class NotReady(ValueError):
     pass
 
 
-def collect(session):
-    """{(day, shape, size, conc): [ {area, perimeter, ecd, circularity}, ... ]} in image / object order."""
+def collect(session, unlabeled=None):
+    """{(day, shape, size, conc): [ {area, perimeter, ecd, circularity}, ... ]} in image / object order.
+
+    Only photos with complete labels are grouped. Spheroids of photos with incomplete labels are
+    appended to `unlabeled` (a list) when one is given, with the labels the photo does have."""
     groups = {}
     for im in session.data['images']:
         if im.get('hidden'):
             continue
-        lb = im['labels']
+        lb = im.get('labels') or {}
         cal = session.calibration_state(im['image_id'])
         if not cal['um_per_px']:
             continue
         s = cal['um_per_px']
-        key = (lb['day'], lb['shape'], lb['size'], lb['conc'])
+        key = (lb.get('day'), lb.get('shape'), lb.get('size'), lb.get('conc'))
+        complete = all(v is not None for v in key)
+        if not complete and unlabeled is None:
+            continue
         img_objs = sorted(
             (o for o in session.data['objects'].values()
              if o['image_id'] == im['image_id'] and o['status'] == 'accepted' and o.get('measure_px')),
@@ -55,10 +64,33 @@ def collect(session):
             m = o['measure_px'][REGION]
             if not m:
                 continue
-            groups.setdefault(key, []).append(dict(
-                area=m['area'] * s * s, perimeter=m['perimeter'] * s, ecd=m['ecd'] * s,
-                circularity=m['circularity'], image=im['original_filename'], object=f'OBJ {idx}'))
+            row = dict(area=m['area'] * s * s, perimeter=m['perimeter'] * s, ecd=m['ecd'] * s,
+                       circularity=m['circularity'], image=im['original_filename'], object=f'OBJ {idx}')
+            if complete:
+                groups.setdefault(key, []).append(row)
+            else:
+                unlabeled.append(dict(row, day=key[0], shape=key[1], size=key[2], conc=key[3]))
     return groups
+
+
+def _unlabeled_sheet(wb, rows):
+    """One row per spheroid of the photos whose labels are incomplete (labels are optional)."""
+    ws = wb.create_sheet('Etiketsiz')
+    ws['A1'] = 'Etiketleri eksik fotoğraflar (gün / şekil / kuyucuk / ekim). Gün sayfalarına ve Analiz\'e girmedi.'
+    ws['A1'].font = B
+    head = ['Fotoğraf', 'Nesne', 'Gün', 'Şekil', 'Kuyucuk', 'Ekim'] + [m[0] for m in METRICS]
+    for c, h in enumerate(head, 1):
+        cell = ws.cell(row=3, column=c, value=h)
+        cell.font, cell.fill, cell.alignment = B, FILL, CENTER
+    for r, row in enumerate(rows, 4):
+        vals = [row['image'], row['object'], row['day'], row['shape'], row['size'], row['conc']] + \
+               [_r(row[k], nd) for _, k, nd in METRICS]
+        for c, v in enumerate(vals, 1):
+            ws.cell(row=r, column=c, value=v).font = F
+    ws.column_dimensions['A'].width = 34
+    for c in range(2, len(head) + 1):
+        ws.column_dimensions[L(c)].width = 12
+    return ws
 
 
 def _r(v, nd):
@@ -181,26 +213,28 @@ def export_groups(session):
             parts.append('there are no visible photos')
         if bl['scale']:
             parts.append('the scale is not confirmed')
-        if bl['missing_labels']:
-            parts.append(f"{len(bl['missing_labels'])} photo(s) have incomplete labels")
         if bl['unprocessed']:
             parts.append(f"{len(bl['unprocessed'])} photo(s) are not detected yet")
         if bl['to_review']:
             parts.append(f"{bl['to_review']} object(s) are still to review")
         raise NotReady('Excel is not ready: ' + '; '.join(parts))
-    groups = collect(session)
+    unlabeled = []
+    groups = collect(session, unlabeled)
     wb = Workbook()
     wb.remove(wb.active)
     for day in DAYS:
         if any(k[0] == day for k in groups):
             _day_sheet(wb, day, groups)
+    if groups:
+        _analiz(wb, groups)
+    if unlabeled:
+        _unlabeled_sheet(wb, unlabeled)
     if not wb.sheetnames:       # every photo had zero approved objects
         ws = wb.create_sheet('Boş')
         ws['A1'] = 'No approved objects.'
-    else:
-        _analiz(wb, groups)
     rel_dir = os.path.join('exports', 'excel_' + now().replace(':', '').replace('-', '')[:15])
     os.makedirs(session.abspath(rel_dir), exist_ok=True)
     rel = os.path.join(rel_dir, 'spheroid_measurements.xlsx')
     wb.save(session.abspath(rel))
-    return dict(xlsx=rel, n_objects=sum(len(v) for v in groups.values()), sheets=wb.sheetnames)
+    return dict(xlsx=rel, n_objects=sum(len(v) for v in groups.values()) + len(unlabeled),
+                n_unlabeled=len(unlabeled), sheets=wb.sheetnames)

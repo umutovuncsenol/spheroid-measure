@@ -52,10 +52,11 @@
       <button id="bDelNeed" style="color:#c00" hidden title="Delete every photo that still has a missing label">Delete unlabeled</button>
       <button id="bDelHidden" style="color:#c00" hidden title="Delete every hidden photo">Delete hidden</button>
       <span class="grow"></span>
-      <label class="small"><input id="phNeeds" type="checkbox"> only photos that need labels</label>
+      <label class="small"><input id="phNeeds" type="checkbox"> only photos without labels</label>
       <label class="small"><input id="phHidden" type="checkbox"> show hidden</label>
     </div>
-    <div id="phSummary" class="small muted"></div>
+    <div class="row" style="margin:6px 0"><span id="phSummary" class="small muted grow"></span>
+      <button id="phNext" class="primary">Next: Scale →</button></div>
     <div id="phGrid" class="grid"></div>
   </div>
 
