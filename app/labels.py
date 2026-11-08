@@ -45,6 +45,8 @@ def parse_labels(filename):
         d = int(dm.group(1))
         out['day'] = d if d in DAYS else None
         head = stem[:dm.start()]
+        if not re.search(r'\d{2,3}', head):   # 'NM-A1-DAY1 o 400 200': size / concentration come after the day
+            head = stem[dm.end():]
     nums = [int(n) for n in re.findall(r'(?<![0-9])(\d{2,3})(?![0-9])', head)]
     size = conc = None
     twos = 0

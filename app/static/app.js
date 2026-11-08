@@ -28,7 +28,16 @@ async function api0(method, url, body, isForm) {
   return j;
 }
 const S = p => `/api/s/${encodeURIComponent(st.session)}${p}`;
-function msg(t, err) { const m = $('#msg'); m.textContent = t || ''; m.className = 'msg' + (err ? ' err' : ''); if (t && !err) setTimeout(() => { if (m.textContent === t) m.textContent = ''; }, 5000); }
+// Floating banner under the header (does not move the page). Info messages fade after 5 s;
+// errors stay until the × is clicked or another message replaces them.
+function msg(t, err) {
+  const m = $('#msg'), bar = $('#msgbar');
+  document.documentElement.style.setProperty('--hdr', document.querySelector('header').offsetHeight + 'px');
+  m.textContent = t || ''; m.className = 'msg' + (err ? ' err' : '');
+  bar.hidden = !t; bar.classList.toggle('err', !!err);
+  if (t && !err) setTimeout(() => { if (m.textContent === t) { m.textContent = ''; bar.hidden = true; } }, 5000);
+}
+$('#msgClose').onclick = () => msg('');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------------------------------------------------------------- measured active review time
