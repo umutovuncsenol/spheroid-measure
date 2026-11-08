@@ -1,11 +1,12 @@
 """Local Flask server. Binds to 127.0.0.1 only. One process can hold several sessions."""
+import hmac
 import os
 import re
 import tempfile
 import threading
 import traceback
 
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from .export import export_session
@@ -39,6 +40,23 @@ def create_app():
 
     def ok(x=None):
         return jsonify(x if x is not None else {'ok': True})
+
+    # Online use: set SPHEROID_PASSWORD and every page and API call asks for it (HTTP Basic auth; the
+    # browser shows its own login box once and remembers it). Any user name is accepted. Unset = no login,
+    # which is right for the local app on 127.0.0.1.
+    password = os.environ.get('SPHEROID_PASSWORD', '')
+    if password:
+        @app.before_request
+        def require_password():
+            if request.path == '/healthz':      # the host's health check carries no password
+                return None
+            auth = request.authorization
+            if auth is None or not hmac.compare_digest((auth.password or '').encode(), password.encode()):
+                return Response('Password required.', 401, {'WWW-Authenticate': 'Basic realm="Spheroid Review"'})
+
+    @app.get('/healthz')
+    def healthz():
+        return ok()
 
     @app.errorhandler(ValueError)
     @app.errorhandler(RuntimeError)
