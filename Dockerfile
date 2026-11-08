@@ -17,7 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 li
 # CPU-only PyTorch: a fraction of the size of the default CUDA build (free hosting has no GPU)
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt gunicorn
+# modal: optional GPU detection on Modal (SPHEROID_GPU=modal, see deploy/modal/sferoid_gpu.py)
+RUN pip install -r /tmp/requirements.txt gunicorn modal
 
 # Hugging Face Spaces run the container as user 1000
 RUN useradd -m -u 1000 user && mkdir -p /data && chown -R user /data

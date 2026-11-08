@@ -66,6 +66,12 @@ DEFAULT_SITE="${OLD_SITE:-${IP//./-}.sslip.io}"
 read -r -p "Site address (Enter = $DEFAULT_SITE): " SITE
 SITE="${SITE:-$DEFAULT_SITE}"
 
+# keep settings this script does not manage (e.g. the Modal GPU lines from enable_modal.sh)
+EXTRA=""
+if [ -f "$ENV_FILE" ]; then
+  EXTRA="$(grep -vE '^(SPHEROID_PASSWORD|SITE_ADDRESS|DATA_DIR|OMP_NUM_THREADS)=' "$ENV_FILE" || true)"
+fi
+
 mkdir -p "$DATA_DIR/sessions" "$DATA_DIR/hf-cache"
 # the app runs as user 1000 inside the container; it must be able to write here
 sudo chown -R 1000:1000 "$DATA_DIR"
@@ -77,6 +83,7 @@ SITE_ADDRESS=$SITE
 DATA_DIR=$DATA_DIR
 OMP_NUM_THREADS=$(nproc)
 EOF
+if [ -n "$EXTRA" ]; then printf '%s\n' "$EXTRA" >> "$ENV_FILE"; fi
 
 # 4. Build and start (the first build downloads PyTorch etc.: 5-15 minutes)
 echo ">> Building and starting the app (first time: 5-15 minutes) ..."

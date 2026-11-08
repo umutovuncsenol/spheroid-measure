@@ -10,6 +10,10 @@ services:
     environment:
       SPHEROID_PASSWORD: ${SPHEROID_PASSWORD}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
+      # GPU detection on Modal (written by enable_modal.sh); empty = run the model on this server
+      SPHEROID_GPU: ${SPHEROID_GPU:-}
+      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:-}
+      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:-}
     volumes:
       - ${DATA_DIR}:/data
     expose:

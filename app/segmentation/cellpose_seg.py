@@ -4,7 +4,11 @@ spheroid (same GAP / MIN_AREA rules as pipeline/spheroid_pipeline.py).
 
 The model is downloaded once from Hugging Face (umutovuncsenol/sferoid) and cached.
 Override with the SPHEROID_MODEL environment variable (a local model file path).
+
+SPHEROID_GPU=modal runs the model on a GPU at Modal instead of on this computer
+(see deploy/modal/sferoid_gpu.py; needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET).
 """
+import io
 import os
 import threading
 
@@ -58,6 +62,51 @@ def _model():
         return _MODEL['m']
 
 
+MODAL_APP = 'sferoid-gpu'
+_REMOTE = {}
+
+
+def _use_modal():
+    return os.environ.get('SPHEROID_GPU', '').strip().lower() == 'modal'
+
+
+def _remote():
+    """The GPU model on Modal. The first call starts a GPU container (about 30-60 s)."""
+    with _MODEL_LOCK:
+        if 'r' not in _REMOTE:
+            try:
+                import modal
+            except ImportError as e:
+                raise RuntimeError(f'The modal package is not installed ({e}). Rebuild the app (update.sh).') from e
+            if not (os.environ.get('MODAL_TOKEN_ID') and os.environ.get('MODAL_TOKEN_SECRET')):
+                raise RuntimeError('SPHEROID_GPU=modal is set but MODAL_TOKEN_ID / MODAL_TOKEN_SECRET are missing. '
+                                   'Run deploy/oracle/enable_modal.sh on the server.')
+            print('Connecting to the GPU model on Modal (the first request starts a GPU, about a minute)...', flush=True)
+            r = modal.Cls.from_name(MODAL_APP, 'Segmenter')()
+            try:
+                r.ping.remote()
+            except Exception as e:
+                raise RuntimeError(f'Could not reach the GPU model on Modal ({type(e).__name__}: {e}). Check that '
+                                   f'"modal deploy deploy/modal/sferoid_gpu.py" was run, that the Modal token is '
+                                   f'right and that the Modal account still has credit.') from e
+            _REMOTE['r'] = r
+            print('GPU model on Modal is ready.', flush=True)
+        return _REMOTE['r']
+
+
+def _remote_eval(small, cellprob):
+    buf = io.BytesIO()
+    Image.fromarray(small).save(buf, 'PNG')
+    try:
+        out = _remote().eval.remote(buf.getvalue(), float(cellprob))
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f'The GPU model on Modal failed ({type(e).__name__}: {e}). Try again; if it keeps '
+                           f'failing, check the Modal dashboard (credit, app "{MODAL_APP}").') from e
+    return np.load(io.BytesIO(out))['m']
+
+
 def _merge(M, min_area, gap):
     ids = [k for k in range(1, int(M.max()) + 1) if (M == k).sum() > min_area]
     if not ids:
@@ -89,7 +138,7 @@ class CellposeSegmenter(Segmenter):
     name = 'cellpose'
 
     def prepare(self):
-        _model()
+        _remote() if _use_modal() else _model()
 
     def segment(self, rgb, region, p):
         H, W = region.shape
@@ -99,7 +148,11 @@ class CellposeSegmenter(Segmenter):
         s = float(p.get('scale', 0.5))
         img = np.ascontiguousarray(rgb[..., :3]) if rgb.ndim == 3 else np.stack([rgb] * 3, -1)
         small = np.asarray(Image.fromarray(img).resize((max(16, round(W * s)), max(16, round(H * s))), Image.LANCZOS))
-        m, _, _ = _model().eval(small, diameter=None, cellprob_threshold=float(p.get('cellprob', 0.0)))
+        cellprob = float(p.get('cellprob', 0.0))
+        if _use_modal():
+            m = _remote_eval(np.ascontiguousarray(small), cellprob)
+        else:
+            m, _, _ = _model().eval(small, diameter=None, cellprob_threshold=cellprob)
         M = np.asarray(Image.fromarray(m.astype(np.int32)).resize((W, H), Image.NEAREST)).astype(np.int32)
         M[~region] = 0
         raw = M > 0
