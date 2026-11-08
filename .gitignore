@@ -21,3 +21,6 @@ model/
 labels*.json
 review*.html
 .DS_Store
+
+# server deployment (deploy/oracle/setup.sh)
+deploy/oracle/.env

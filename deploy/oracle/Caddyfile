@@ -1,0 +1,13 @@
+# HTTPS reverse proxy. SITE_ADDRESS is e.g. 129-151-22-10.sslip.io (a free name that points to the
+# server's IP, so no domain has to be bought) or your own domain. Caddy fetches and renews the
+# certificate by itself.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy app:7860 {
+		# detection of one photo can take a while on CPU
+		transport http {
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+}

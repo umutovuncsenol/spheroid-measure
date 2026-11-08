@@ -1,0 +1,35 @@
+# Spheroid Review on one always-on server (e.g. Oracle Cloud Always Free).
+# Started by deploy/oracle/setup.sh; values come from deploy/oracle/.env (written by setup.sh).
+#   app    the web app (Dockerfile at the repository root), one process, data in $DATA_DIR
+#   caddy  HTTPS in front of it: gets a free Let's Encrypt certificate for $SITE_ADDRESS automatically
+services:
+  app:
+    build:
+      context: ../..
+    restart: unless-stopped
+    environment:
+      SPHEROID_PASSWORD: ${SPHEROID_PASSWORD}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
+    volumes:
+      - ${DATA_DIR}:/data
+    expose:
+      - "7860"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
