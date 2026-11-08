@@ -21,7 +21,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter as L
 
-from .labels import CONCS, DAYS, SHAPES, SIZES
+from .labels import CONCS, SHAPES, SIZES
 from .store import now
 
 METRICS = [('Alan', 'area', 1), ('Çevre', 'perimeter', 1), ('Çap', 'ecd', 1), ('Çembersellik', 'circularity', 3)]
@@ -104,7 +104,7 @@ def _r(v, nd):
 
 def _day_sheet(wb, day, groups):
     ws = wb.create_sheet(f'{day}. Gün')
-    shapes = [sh for sh in SHAPES if any(k[0] == day and k[1] == sh for k in groups)]
+    shapes = _ordered({k[1] for k in groups if k[0] == day}, SHAPES)
     concs = _ordered({k[3] for k in groups if k[0] == day}, CONCS)
     cols_per_conc = 6  # Görsel + Obje + Alan + Çevre + Çap + Çembersellik
     width = len(concs) * cols_per_conc
@@ -181,9 +181,7 @@ def _analiz(wb, groups):
     for title, key, nd in ANALIZ:
         ws.cell(row, 1, title).font = Font(name='Arial', size=12, bold=True)
         row += 1
-        for sh in SHAPES:
-            if not any(k[1] == sh for k in groups):
-                continue
+        for sh in _ordered({k[1] for k in groups}, SHAPES):
             ws.cell(row, 1, sh).font = B
             ws.cell(row, 1).fill = FILL
             for i, (sz, cn) in enumerate(combos):
@@ -229,9 +227,8 @@ def export_groups(session):
     groups = collect(session, unlabeled)
     wb = Workbook()
     wb.remove(wb.active)
-    for day in DAYS:
-        if any(k[0] == day for k in groups):
-            _day_sheet(wb, day, groups)
+    for day in sorted({k[0] for k in groups}):
+        _day_sheet(wb, day, groups)
     if groups:
         _analiz(wb, groups)
     if unlabeled:

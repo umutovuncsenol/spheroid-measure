@@ -6,8 +6,8 @@ read stays None so the UI marks the photo "needs labels".
 """
 import re
 
-DAYS = tuple(range(1, 22))   # any day 1-21 (labs track daily, every other day, ...)
-SHAPES = ('Piramit', 'Oval', 'Yamuk')
+DAYS = tuple(range(1, 22))   # days read from file names; any day can be typed in by hand
+SHAPES = ('Piramit', 'Oval', 'Yamuk')   # usual shapes (suggestions); any name can be typed in
 SIZES = (600, 400, 200)          # usual values: used to read file names and as suggestions in the UI;
 CONCS = (50, 100, 150, 200)      # any other positive number can be typed in by hand
 EMPTY = dict(day=None, shape=None, size=None, conc=None)
@@ -77,18 +77,37 @@ def clean_labels(d):
     """Validate user-supplied labels (partial dict). Returns only the valid, normalised keys."""
     out = {}
     if 'day' in d:
-        out['day'] = None if d['day'] in (None, '') else int(d['day'])
-        if out['day'] is not None and out['day'] not in DAYS:
-            raise ValueError(f'day must be between {DAYS[0]} and {DAYS[-1]}')
+        out['day'] = _day(d['day'])
     if 'shape' in d:
-        out['shape'] = d['shape'] or None
-        if out['shape'] is not None and out['shape'] not in SHAPES:
-            raise ValueError('shape must be Piramit, Oval or Yamuk')
+        out['shape'] = _text(d['shape'], 'shape')
     if 'size' in d:
         out['size'] = _number(d['size'], 'well size')
     if 'conc' in d:
         out['conc'] = _number(d['conc'], 'concentration')
     return out
+
+
+def _day(v):
+    """A typed-in day: 'D5', 'day 5', 'Gün 5' or just 5 -> 5."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    t = re.sub(r'^\s*(?:d|day|gun|gün)[\s._-]*', '', str(v).strip(), flags=re.I)
+    if not re.fullmatch(r'\d{1,3}', t):
+        raise ValueError(f'day must be a whole number (got "{v}")')
+    return int(t)
+
+
+def _text(v, what):
+    """A typed-in name. The usual shapes are written the usual way ('oval' -> 'Oval')."""
+    if v is None or not str(v).strip():
+        return None
+    t = re.sub(r'\s+', ' ', str(v).strip())
+    if len(t) > 40:
+        raise ValueError(f'{what} is too long (40 characters at most)')
+    for known in SHAPES:
+        if t.lower() == known.lower():
+            return known
+    return t
 
 
 def _number(v, what):

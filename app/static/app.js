@@ -73,7 +73,6 @@ window.addEventListener('pagehide', () => flushActive(true));
 
 // ---------------------------------------------------------------- steps
 const STEPS = [['upload', 'Upload'], ['photos', 'Photos'], ['scale', 'Scale'], ['detect', 'Detect'], ['review', 'Review']];
-const DAY_OPTS = Array.from({ length: 21 }, (_, i) => i + 1);   // labels.DAYS
 const visImgs = () => (st.summary ? st.summary.images.filter(i => !i.hidden) : []);
 const labText = lb => lb ? [lb.day ? 'D' + lb.day : '?', lb.shape || '?', lb.size || '?', lb.conc || '?'].join(' · ') : '';
 function stepInfo(k) {
@@ -273,8 +272,8 @@ function renderPhotos() {
         <button class="small del" data-del title="Delete this photo">Delete</button></span></div>
       <div class="fn">${esc(im.original_filename)}</div>
       <div class="lab">
-        <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + DAY_OPTS.map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
-        <select data-k="shape" class="${miss('shape')}" title="Shape">${'<option value="">Shape —</option>' + ['Piramit', 'Oval', 'Yamuk'].map(x => `<option ${lb.shape === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
+        <label class="num ${miss('day')}" title="Day (type any whole number)"><span>Day</span><input data-k="day" type="text" inputmode="numeric" list="dlDay" placeholder="—" value="${lb.day ?? ''}"></label>
+        <label class="num ${miss('shape')}" title="Shape (type any name)"><span>Shape</span><input data-k="shape" type="text" list="dlShape" placeholder="—" value="${esc(lb.shape ?? '')}"></label>
         <label class="num ${miss('size')}" title="Well size (type any number)"><span>Well</span><input data-k="size" type="text" inputmode="decimal" list="dlSize" placeholder="—" value="${lb.size ?? ''}"></label>
         <label class="num ${miss('conc')}" title="Concentration (type any number)"><span>Conc.</span><input data-k="conc" type="text" inputmode="decimal" list="dlConc" placeholder="—" value="${lb.conc ?? ''}"></label>
       </div></div>`;
