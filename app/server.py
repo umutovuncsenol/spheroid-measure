@@ -336,6 +336,8 @@ def create_app():
     @app.post('/api/s/<name>/scale')
     def set_scale(name):
         j = request.json
+        if j.get('manual') is not None:   # typed in: {"manual": 1.887, "unit": "µm/px" | "px/µm"}
+            return ok(get_session(name).set_session_scale_manual(j['manual'], j.get('unit', 'µm/px')))
         c = get_session(name).set_session_scale(j['line'], j['known_length'], j['unit'], j['source_image_id'])
         return ok(c)
 

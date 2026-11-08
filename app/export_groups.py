@@ -170,6 +170,7 @@ def _stats(vals):
 def _analiz(wb, groups):
     ws = wb.create_sheet('Analiz')
     combos = [(s, c) for s in SIZES for c in CONCS]
+    days = sorted({k[0] for k in groups})      # only the days that were measured
     row = 1
     for title, key, nd in ANALIZ:
         ws.cell(row, 1, title).font = Font(name='Arial', size=12, bold=True)
@@ -187,7 +188,7 @@ def _analiz(wb, groups):
                 ws.cell(row, c).fill = FILL
                 ws.cell(row + 1, c, 'Ort.').font = B
                 ws.cell(row + 1, c + 1, 'SD').font = B
-            for di, day in enumerate(DAYS):
+            for di, day in enumerate(days):
                 r = row + 2 + di
                 ws.cell(r, 1, f'{day}. Gün').font = B
                 for i, (sz, cn) in enumerate(combos):
@@ -197,7 +198,7 @@ def _analiz(wb, groups):
                         ws.cell(r, 2 + i * 2, _r(mean, nd)).font = F
                     if sd is not None:
                         ws.cell(r, 3 + i * 2, _r(sd, nd)).font = F
-            row += 2 + len(DAYS) + 1
+            row += 2 + len(days) + 1
         row += 1
     ws.column_dimensions['A'].width = 12
     for c in range(2, 2 + len(combos) * 2):

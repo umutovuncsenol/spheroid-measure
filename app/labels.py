@@ -6,13 +6,13 @@ read stays None so the UI marks the photo "needs labels".
 """
 import re
 
-DAYS = (1, 3, 5, 7)
+DAYS = tuple(range(1, 22))   # any day 1-21 (labs track daily, every other day, ...)
 SHAPES = ('Piramit', 'Oval', 'Yamuk')
 SIZES = (600, 400, 200)
 CONCS = (50, 100, 150, 200)
 EMPTY = dict(day=None, shape=None, size=None, conc=None)
 
-_DAY = re.compile(r'(?:^|[^a-z0-9])d(\d{1,2})(?![0-9])', re.I)
+_DAY = re.compile(r'(?:^|[^a-z0-9])(?:d|day|gun|gün)[\s_\-]?(\d{1,2})(?![0-9])', re.I)   # d5, DAY1, Day_3, gün 7
 
 
 def _shape(tok):
@@ -77,7 +77,7 @@ def clean_labels(d):
     if 'day' in d:
         out['day'] = None if d['day'] in (None, '') else int(d['day'])
         if out['day'] is not None and out['day'] not in DAYS:
-            raise ValueError('day must be one of 1, 3, 5, 7')
+            raise ValueError(f'day must be between {DAYS[0]} and {DAYS[-1]}')
     if 'shape' in d:
         out['shape'] = d['shape'] or None
         if out['shape'] is not None and out['shape'] not in SHAPES:

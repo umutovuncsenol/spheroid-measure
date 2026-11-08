@@ -391,9 +391,9 @@ def export_session(session):
                'Line x1', 'Line y1', 'Line x2', 'Line y2', 'Drawn on image', 'Applied to images',
                'Compatibility confirmed for', 'Created', 'Confirmed at', 'Note'])
     for c in data['calibrations'].values():
-        (x1, y1), (x2, y2) = c['line']
-        wc.append([c['cal_id'], c['status'], c['um_per_px'], c['known_length'], c['unit'], c['line_length_px'],
-                   x1, y1, x2, y2, c['source_image_id'], ', '.join(c['applied_to']),
+        (x1, y1), (x2, y2) = c['line'] if c.get('line') else ((None, None), (None, None))   # typed-in scale: no line
+        wc.append([c['cal_id'], c['status'], c['um_per_px'], c.get('known_length'), c['unit'], c.get('line_length_px'),
+                   x1, y1, x2, y2, c.get('source_image_id') or 'entered by hand', ', '.join(c['applied_to']),
                    ', '.join(c['compatibility_confirmed_for']), c['created'], c['confirmed_at'] or '', c['note']])
     _style(wc, widths={16: 80})
 

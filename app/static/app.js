@@ -64,6 +64,7 @@ window.addEventListener('pagehide', () => flushActive(true));
 
 // ---------------------------------------------------------------- steps
 const STEPS = [['upload', 'Upload'], ['photos', 'Photos'], ['scale', 'Scale'], ['detect', 'Detect'], ['review', 'Review']];
+const DAY_OPTS = Array.from({ length: 21 }, (_, i) => i + 1);   // labels.DAYS
 const visImgs = () => (st.summary ? st.summary.images.filter(i => !i.hidden) : []);
 const labText = lb => lb ? [lb.day ? 'D' + lb.day : '?', lb.shape || '?', lb.size || '?', lb.conc || '?'].join(' · ') : '';
 function stepInfo(k) {
@@ -263,7 +264,7 @@ function renderPhotos() {
         <button class="small del" data-del title="Delete this photo">Delete</button></span></div>
       <div class="fn">${esc(im.original_filename)}</div>
       <div class="lab">
-        <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + [1, 3, 5, 7].map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
+        <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + DAY_OPTS.map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
         <select data-k="shape" class="${miss('shape')}" title="Shape">${'<option value="">Shape —</option>' + ['Piramit', 'Oval', 'Yamuk'].map(x => `<option ${lb.shape === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
         <select data-k="size" class="${miss('size')}" title="Well size">${'<option value="">Well size —</option>' + [600, 400, 200].map(x => `<option value="${x}" ${lb.size === x ? 'selected' : ''}>Well ${x}</option>`).join('')}</select>
         <select data-k="conc" class="${miss('conc')}" title="Concentration">${'<option value="">Conc. —</option>' + [50, 100, 150, 200].map(x => `<option value="${x}" ${lb.conc === x ? 'selected' : ''}>Conc. ${x}</option>`).join('')}</select>
@@ -363,8 +364,11 @@ function renderScale() {
   const conf = sc.status === 'confirmed';
   const odd = visImgs().filter(i => i.width !== im.width || i.height !== im.height).length;
   let h = `<h3 style="margin:2px 0 6px">3 · Scale</h3>
-    <div class="small muted">Pick <b>one</b> photo that shows the scale bar (list on the left). Check the line, confirm — the same scale is used for <b>all</b> photos.</div>`;
-  if (conf) h += `<div class="res"><b>Confirmed:</b> ${fmt(sc.um_per_px, 5)} µm/px<br><span class="small">line ${fmt(sc.known_length ? Math.hypot(sc.line[1][0] - sc.line[0][0], sc.line[1][1] - sc.line[0][1]) : 0, 1)} px = ${fmt(sc.known_length, 0)} ${esc(sc.unit)} · taken from ${sc.source_image_id}${sc.different_size.length ? ` · <span class="warnline">${sc.different_size.length} photo(s) have another pixel size</span>` : ''}</span></div>`;
+    <div class="small muted">Pick <b>one</b> photo that shows the scale bar (list on the left). Check the line, confirm — the same scale is used for <b>all</b> photos.
+    No scale bar in your photos? Type the scale in the box at the bottom instead.</div>`;
+  const oddTxt = sc.different_size && sc.different_size.length ? ` · <span class="warnline">${sc.different_size.length} photo(s) have another pixel size</span>` : '';
+  if (conf && sc.method === 'manual') h += `<div class="res"><b>Confirmed:</b> ${fmt(sc.um_per_px, 5)} µm/px<br><span class="small">${esc(sc.note || 'entered by hand')}${oddTxt}</span></div>`;
+  else if (conf) h += `<div class="res"><b>Confirmed:</b> ${fmt(sc.um_per_px, 5)} µm/px<br><span class="small">line ${fmt(sc.line ? Math.hypot(sc.line[1][0] - sc.line[0][0], sc.line[1][1] - sc.line[0][1]) : 0, 1)} px = ${fmt(sc.known_length, 0)} ${esc(sc.unit)} · taken from ${esc(sc.source_image_id || '')}${oddTxt}</span></div>`;
   if (det && det.found) h += `<div class="small"><span class="badge ok">scale bar found</span> ${det.n_ticks === 11 ? '11 tick marks' : 'bar ends'} · ${fmt(det.length_px, 1)} px (assuming ${det.known_length} ${esc(det.unit)}). Check both ends, then confirm.</div>`;
   else if (det) h += `<div class="small"><span class="badge warn">no scale bar found automatically</span> ${esc(det.reason || '')} Draw the line by hand: tool “Draw line by hand”, drag from one end of the bar to the other (Shift = horizontal).</div>`;
   else h += '<div class="small muted">Looking for the scale bar…</div>';
@@ -379,7 +383,20 @@ function renderScale() {
       <div class="row"><button class="primary" id="slConfirm" disabled>Confirm scale for all photos</button></div></div>`;
   }
   h += `<div class="row"><button id="slAgain">Detect again</button>${conf ? '<button id="slNext" class="primary">Next: Detect →</button>' : ''}</div>`;
+  // no scale bar: type the scale (e.g. from the microscope software or the objective's calibration)
+  const manualVal = conf && sc.method === 'manual' ? +fmt(sc.um_per_px, 6) : '';
+  h += `<details class="box" style="margin-top:8px" ${!det || det.found ? '' : 'open'}><summary><b>No scale bar? Enter the scale by hand</b></summary>
+    <div class="row" style="margin-top:6px"><input id="mnVal" type="number" step="any" min="0" placeholder="e.g. 1.887" value="${manualVal}" style="width:8em">
+      <select id="mnUnit"><option value="µm/px">µm per pixel</option><option value="px/µm">pixels per µm</option></select>
+      <button class="primary" id="mnSet">Use for all photos</button></div>
+    <div class="small muted">Take the value from the microscope / camera software, or from an earlier session with the same objective
+      and camera resolution. It is only valid if all photos were taken with that objective and not resized.</div></details>`;
   $('#scalePanel').innerHTML = h;
+  $('#mnSet').onclick = async () => {
+    const v = +$('#mnVal').value; if (!(v > 0)) return msg('Enter a positive number.', true);
+    await api('POST', S('/scale'), { manual: v, unit: $('#mnUnit').value });
+    msg('Scale set for all photos. Measurements are re-calculated with it.'); st.scaleLine = null; await reload(); renderScale();
+  };
   const upd = () => { const ok = L && +$('#slLen').value > 0 && $('#slCompat').checked; $('#slConfirm').disabled = !ok; };
   if (L) {
     $('#slLen').oninput = () => { L.known = +$('#slLen').value; upd(); scaleNumbers(); };
@@ -591,7 +608,7 @@ function drawScaleLine() {
   const sc = st.summary && st.summary.scale, S0 = st.scaleLine;
   let line = null, col = '#ff9f1a', label = '';
   if (S0) { line = S0.line; label = `${S0.known ?? 500} ${S0.unit || 'µm'} = ${fmt(sLen(S0), 1)} px`; }
-  else if (sc && sc.status === 'confirmed' && sc.source_image_id === st.imageId) { line = sc.line; col = '#2bd65a'; label = `confirmed · ${sc.known_length} ${sc.unit}`; }
+  else if (sc && sc.status === 'confirmed' && sc.line && sc.source_image_id === st.imageId) { line = sc.line; col = '#2bd65a'; label = `confirmed · ${sc.known_length} ${sc.unit}`; }
   if (!line) return;
   const [a, b] = toScr(...line[0]), [p, q] = toScr(...line[1]);
   ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.setLineDash([]);

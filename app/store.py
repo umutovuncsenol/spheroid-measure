@@ -587,18 +587,46 @@ class Session:
             self.apply_calibration(cal['cal_id'], [i['image_id'] for i in self.data['images']], True)
         return cal
 
+    def set_session_scale_manual(self, value, unit='µm/px'):
+        """Scale typed in by the researcher, for photos without a scale bar (e.g. the value from the
+        microscope software). `value` is micrometres per pixel, or pixels per micrometre when
+        unit == 'px/µm'. Used for every photo of the session, like a confirmed scale bar."""
+        v = float(value)
+        if not (v > 0 and math.isfinite(v)):
+            raise ValueError('the scale must be a positive number')
+        um_per_px = 1.0 / v if unit in ('px/µm', 'px/um') else v
+        if not (1e-4 <= um_per_px <= 1e4):
+            raise ValueError(f'{um_per_px:g} µm per pixel is not a plausible microscope scale - check the number')
+        with self.lock:
+            cal_id = self._next('calibration', 'CAL', 3)
+            ids = [i['image_id'] for i in self.data['images']]
+            self.data['calibrations'][cal_id] = dict(
+                cal_id=cal_id, um_per_px=um_per_px, line=None, line_length_px=None, known_length=None, unit='µm',
+                source_image_id=None, method='manual', status='confirmed',
+                note=f'entered by hand: {v:g} {unit}', created=now(), confirmed_at=now(),
+                applied_to=list(ids), compatibility_confirmed_for=list(ids))
+            for iid in ids:
+                self.image(iid)['calibration_id'] = cal_id
+                self._event(iid, 'calibration_manual', um_per_px)
+            self.data['scale_cal_id'] = cal_id
+            self.save()
+            return self.data['calibrations'][cal_id]
+
     def scale_state(self):
         with self.lock:
             cid = self.data.get('scale_cal_id')
             c = self.data['calibrations'].get(cid) if cid else None
             if not c:
                 return dict(status='none', um_per_px=None, cal_id=None)
-            src = self.image(c['source_image_id'])
+            # the photo the bar was measured on may have been deleted since, and a typed-in scale
+            # has none: compare sizes with it when it exists, otherwise with the first photo
+            src = next((i for i in self.data['images'] if i['image_id'] == c.get('source_image_id')), None) \
+                or (self.data['images'][0] if self.data['images'] else None)
             odd = [i['image_id'] for i in self.data['images']
-                   if (i['width'], i['height']) != (src['width'], src['height'])]
-            return dict(status='confirmed', um_per_px=c['um_per_px'], cal_id=cid, line=c['line'],
-                        known_length=c['known_length'], unit=c['unit'], source_image_id=c['source_image_id'],
-                        different_size=odd)
+                   if src and (i['width'], i['height']) != (src['width'], src['height'])]
+            return dict(status='confirmed', um_per_px=c['um_per_px'], cal_id=cid, line=c.get('line'),
+                        known_length=c.get('known_length'), unit=c.get('unit'), source_image_id=c.get('source_image_id'),
+                        method=c.get('method', 'scale_bar'), note=c.get('note', ''), different_size=odd)
 
     def clear_calibration(self, image_id):
         with self.lock:
