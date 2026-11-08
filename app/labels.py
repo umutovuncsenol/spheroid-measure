@@ -8,8 +8,8 @@ import re
 
 DAYS = tuple(range(1, 22))   # any day 1-21 (labs track daily, every other day, ...)
 SHAPES = ('Piramit', 'Oval', 'Yamuk')
-SIZES = (600, 400, 200)
-CONCS = (50, 100, 150, 200)
+SIZES = (600, 400, 200)          # usual values: used to read file names and as suggestions in the UI;
+CONCS = (50, 100, 150, 200)      # any other positive number can be typed in by hand
 EMPTY = dict(day=None, shape=None, size=None, conc=None)
 
 _DAY = re.compile(r'(?:^|[^a-z0-9])(?:d|day|gun|gün)[\s_\-]?(\d{1,2})(?![0-9])', re.I)   # d5, DAY1, Day_3, gün 7
@@ -85,11 +85,20 @@ def clean_labels(d):
         if out['shape'] is not None and out['shape'] not in SHAPES:
             raise ValueError('shape must be Piramit, Oval or Yamuk')
     if 'size' in d:
-        out['size'] = None if d['size'] in (None, '') else int(d['size'])
-        if out['size'] is not None and out['size'] not in SIZES:
-            raise ValueError('well size must be 600, 400 or 200')
+        out['size'] = _number(d['size'], 'well size')
     if 'conc' in d:
-        out['conc'] = None if d['conc'] in (None, '') else int(d['conc'])
-        if out['conc'] is not None and out['conc'] not in CONCS:
-            raise ValueError('concentration must be 50, 100, 150 or 200')
+        out['conc'] = _number(d['conc'], 'concentration')
     return out
+
+
+def _number(v, what):
+    """A typed-in label value: empty -> None, otherwise a positive number (whole numbers stay ints)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    try:
+        x = float(str(v).strip().replace(',', '.'))
+    except ValueError:
+        raise ValueError(f'{what} must be a number (got "{v}")') from None
+    if not (0 < x < 1e6):
+        raise ValueError(f'{what} must be a positive number')
+    return int(x) if x == int(x) else round(x, 4)

@@ -275,8 +275,8 @@ function renderPhotos() {
       <div class="lab">
         <select data-k="day" class="${miss('day')}" title="Day">${'<option value="">Day —</option>' + DAY_OPTS.map(x => `<option value="${x}" ${lb.day === x ? 'selected' : ''}>Day ${x}</option>`).join('')}</select>
         <select data-k="shape" class="${miss('shape')}" title="Shape">${'<option value="">Shape —</option>' + ['Piramit', 'Oval', 'Yamuk'].map(x => `<option ${lb.shape === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
-        <select data-k="size" class="${miss('size')}" title="Well size">${'<option value="">Well size —</option>' + [600, 400, 200].map(x => `<option value="${x}" ${lb.size === x ? 'selected' : ''}>Well ${x}</option>`).join('')}</select>
-        <select data-k="conc" class="${miss('conc')}" title="Concentration">${'<option value="">Conc. —</option>' + [50, 100, 150, 200].map(x => `<option value="${x}" ${lb.conc === x ? 'selected' : ''}>Conc. ${x}</option>`).join('')}</select>
+        <label class="num ${miss('size')}" title="Well size (type any number)"><span>Well</span><input data-k="size" type="text" inputmode="decimal" list="dlSize" placeholder="—" value="${lb.size ?? ''}"></label>
+        <label class="num ${miss('conc')}" title="Concentration (type any number)"><span>Conc.</span><input data-k="conc" type="text" inputmode="decimal" list="dlConc" placeholder="—" value="${lb.conc ?? ''}"></label>
       </div></div>`;
   }).join('') || '<div class="muted">Nothing to show.</div>';
   $('#phSel').textContent = `${sel.size} selected`;
@@ -293,9 +293,13 @@ function renderPhotos() {
       await api('PUT', S('/hidden'), { image_ids: [id], hidden: e.target.dataset.hide === '1' }); st.phSel.delete(id); refreshSummary();
     };
     card.querySelector('[data-del]').onclick = () => deletePhotos([id]);
-    card.querySelectorAll('select[data-k]').forEach(sl => sl.onchange = async () => {
-      const k = sl.dataset.k; await api('PUT', S('/labels'), { image_ids: [id], labels: { [k]: sl.value === '' ? null : sl.value } }); refreshSummary();
+    card.querySelectorAll('[data-k]').forEach(sl => sl.onchange = async () => {
+      const k = sl.dataset.k, v = sl.value.trim();
+      try { await api('PUT', S('/labels'), { image_ids: [id], labels: { [k]: v === '' ? null : v } }); }
+      catch (e) { refreshSummary(); return; }      // api() already showed the message; put the old value back
+      refreshSummary();
     });
+    card.querySelectorAll('input[data-k]').forEach(inp => inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); });
   });
 }
 $('#phAll').onchange = e => {
@@ -308,7 +312,7 @@ $('#phNext').onclick = () => go('scale');
 $('#bApply').onclick = async () => {
   const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
   const labels = {};
-  for (const [id, k] of [['bDay', 'day'], ['bShape', 'shape'], ['bSize', 'size'], ['bConc', 'conc']]) if ($('#' + id).value) labels[k] = $('#' + id).value;
+  for (const [id, k] of [['bDay', 'day'], ['bShape', 'shape'], ['bSize', 'size'], ['bConc', 'conc']]) if ($('#' + id).value.trim()) labels[k] = $('#' + id).value.trim();
   if (!Object.keys(labels).length) return msg('Choose at least one label to apply.', true);
   await api('PUT', S('/labels'), { image_ids: ids, labels }); msg(`Labels set on ${ids.length} photo(s).`);
   ['bDay', 'bShape', 'bSize', 'bConc'].forEach(id => $('#' + id).value = ''); refreshSummary();

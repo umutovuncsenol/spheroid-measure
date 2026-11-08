@@ -44,8 +44,10 @@
       <span class="small muted" id="phSel">0 selected</span>
       <select id="bDay" title="Day"><option value="">Day</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option><option>21</option></select>
       <select id="bShape" title="Shape"><option value="">Shape</option><option>Piramit</option><option>Oval</option><option>Yamuk</option></select>
-      <select id="bSize" title="Well size"><option value="">Well size</option><option>600</option><option>400</option><option>200</option></select>
-      <select id="bConc" title="Concentration"><option value="">Concentration</option><option>50</option><option>100</option><option>150</option><option>200</option></select>
+      <input id="bSize" class="numin" type="text" inputmode="decimal" list="dlSize" placeholder="Well size" title="Well size: type any number">
+      <input id="bConc" class="numin" type="text" inputmode="decimal" list="dlConc" placeholder="Concentration" title="Concentration: type any number">
+      <datalist id="dlSize"><option value="600"><option value="400"><option value="200"></datalist>
+      <datalist id="dlConc"><option value="50"><option value="100"><option value="150"><option value="200"></datalist>
       <button id="bApply">Apply to selected</button>
       <button id="bHide">Hide selected</button>
       <button id="bDelete" style="color:#c00" title="Delete the ticked photos (or press the Delete key)">Delete selected</button>

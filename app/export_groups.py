@@ -93,6 +93,11 @@ def _unlabeled_sheet(wb, rows):
     return ws
 
 
+def _ordered(present, usual):
+    """Values that occur in the data: the usual ones in their usual order, then any typed-in ones sorted."""
+    return [v for v in usual if v in present] + sorted(v for v in present if v not in usual)
+
+
 def _r(v, nd):
     return None if v is None else round(float(v), nd)
 
@@ -100,12 +105,12 @@ def _r(v, nd):
 def _day_sheet(wb, day, groups):
     ws = wb.create_sheet(f'{day}. Gün')
     shapes = [sh for sh in SHAPES if any(k[0] == day and k[1] == sh for k in groups)]
-    concs = CONCS
+    concs = _ordered({k[3] for k in groups if k[0] == day}, CONCS)
     cols_per_conc = 6  # Görsel + Obje + Alan + Çevre + Çap + Çembersellik
     width = len(concs) * cols_per_conc
     ws.cell(1, 1, f'{day}. Gün').font = B
     row = 3
-    for size in SIZES:
+    for size in _ordered({k[2] for k in groups if k[0] == day}, SIZES):
         sizes_present = [k for k in groups if k[0] == day and k[2] == size]
         if not sizes_present:
             continue
@@ -169,7 +174,8 @@ def _stats(vals):
 
 def _analiz(wb, groups):
     ws = wb.create_sheet('Analiz')
-    combos = [(s, c) for s in SIZES for c in CONCS]
+    combos = [(s, c) for s in _ordered({k[2] for k in groups}, SIZES)
+              for c in _ordered({k[3] for k in groups}, CONCS) if any(k[2] == s and k[3] == c for k in groups)]
     days = sorted({k[0] for k in groups})      # only the days that were measured
     row = 1
     for title, key, nd in ANALIZ:
