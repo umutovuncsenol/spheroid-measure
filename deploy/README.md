@@ -1,12 +1,12 @@
 # Canlıya alma (Hugging Face Spaces)
 
-Uygulama bir Docker imajı olarak herhangi bir sunucuda çalışır (`Dockerfile`). En kolay ve ücretsiz yol
-Hugging Face Spaces: model zaten Hugging Face'te, ücretsiz CPU planı 2 çekirdek / 16 GB RAM verir.
+En kolay ve ücretsiz yol Hugging Face Spaces (Gradio SDK ile; `Dockerfile` başka sunucular için): model zaten Hugging Face'te, ücretsiz CPU planı 2 çekirdek / 16 GB RAM verir.
 
 ## Bir kez yapılacaklar
 1. **Space oluştur:** https://huggingface.co/new-space
    - Space name: `sferoid` (istediğin ad)
-   - SDK: **Docker** → Blank
+   - SDK: **Gradio** → **Blank** (Docker seçeneği ücretli; Gradio ücretsiz ve burada aynı işi görür:
+     `deploy/hf_space/space_app.py` uygulamanın kendi sunucusunu başlatır)
    - Hardware: **CPU basic (free)**
    - Public ya da Private (Private seçersen siteyi sadece Space'e eklediğin Hugging Face hesapları açabilir)
 2. **Şifre koy:** Space → Settings → *Variables and secrets* → **New secret**

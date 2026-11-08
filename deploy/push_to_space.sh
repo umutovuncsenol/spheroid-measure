@@ -5,7 +5,8 @@
 #
 # Needs: git, and a Hugging Face access token with WRITE permission
 # (huggingface.co -> Settings -> Access Tokens). Git asks for it as the password; the user name is
-# your Hugging Face user name. The Space must already exist (huggingface.co/new-space, SDK: Docker).
+# your Hugging Face user name. The Space must already exist (huggingface.co/new-space, SDK: Gradio,
+# template: Blank; Docker Spaces are a paid option, the Gradio runtime is free and works the same here).
 # Every run replaces the Space contents with the current commit; the Space then rebuilds itself.
 set -euo pipefail
 
@@ -20,7 +21,10 @@ git clone --depth 1 "https://huggingface.co/spaces/$SPACE" "$WORK/space"
 echo ">> Copying the current commit ..."
 find "$WORK/space" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 git -C "$REPO_DIR" archive HEAD | tar -x -C "$WORK/space"
-cp "$REPO_DIR/deploy/hf_space/README.md" "$WORK/space/README.md"     # the Space needs its own header
+# Space-specific files go to the Space root: README header (SDK settings), space_app.py (starts the
+# server), requirements.txt (CPU-only PyTorch), packages.txt (system libraries)
+cp "$REPO_DIR"/deploy/hf_space/* "$WORK/space/"
+rm -f "$WORK/space/Dockerfile" "$WORK/space/.dockerignore"   # the Space uses the Gradio SDK runtime, not Docker
 
 cd "$WORK/space"
 git add -A

@@ -1,0 +1,16 @@
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+# CPU-only PyTorch (the free Space has no GPU; the default CUDA build is several GB)
+torch
+torchvision
+cellpose>=4.2
+opencv-python-headless
+scipy>=1.11
+numpy>=1.26
+pillow>=10.0
+scikit-image>=0.22
+huggingface_hub
+flask>=3.0
+openpyxl>=3.1
+roifile>=2026.9.22
+gunicorn
