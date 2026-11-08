@@ -347,39 +347,54 @@ class Session:
         """Hide / show photos. Hidden photos stay in the session (nothing is deleted) but are skipped by
         detection, review, scale application and export."""
         with self.lock:
-            for iid in image_ids:
-                self.image(iid)['hidden'] = bool(hidden)
+            present = {i['image_id']: i for i in self.data['images']}
+            for iid in dict.fromkeys(image_ids):
+                if iid not in present:      # stale selection in the browser: skip, do not abort
+                    continue
+                present[iid]['hidden'] = bool(hidden)
                 self._event(iid, 'hidden' if hidden else 'shown', None)
             self.save()
 
     def delete_images(self, image_ids):
-        """Permanently remove photos and all associated data from the session."""
+        """Permanently remove photos and all associated data from the session.
+
+        Robust by design: ids that are no longer in the session (already deleted, stale browser
+        selection) are skipped instead of aborting the whole request, the session record is saved
+        BEFORE files are removed, and file removal is best effort (on Windows a file that is still
+        open elsewhere cannot be removed; a leftover file is harmless, a half-finished delete is not).
+        Returns the ids that were actually deleted."""
+        wanted = list(dict.fromkeys(image_ids))           # de-duplicate, keep order
+        files, dirs, deleted = [], [], []
         with self.lock:
-            for iid in image_ids:
-                im = self.image(iid)
-                # remove associated objects and their masks
-                to_del = [oid for oid, o in self.data['objects'].items() if o['image_id'] == iid]
-                for oid in to_del:
-                    o = self.data['objects'][oid]
-                    for suffix in ('', '_auto'):
-                        p = self.abspath(o.get('mask_file', '').replace('.png', suffix + '.png'))
-                        if os.path.exists(p):
-                            os.remove(p)
+            present = {i['image_id']: i for i in self.data['images']}
+            for iid in wanted:
+                im = present.get(iid)
+                if im is None:
+                    continue
+                for oid in [oid for oid, o in self.data['objects'].items() if o['image_id'] == iid]:
+                    mf = self.data['objects'][oid].get('mask_file')
+                    if mf:   # an empty name would resolve to the session folder itself
+                        files += [self.abspath(mf.replace('.png', sfx + '.png')) for sfx in ('', '_auto')]
                     del self.data['objects'][oid]
-                # remove files on disk
-                for subdir in ('originals', 'parts', 'masks', 'references'):
-                    d = self.abspath(os.path.join(subdir, iid))
-                    if os.path.isdir(d):
-                        shutil.rmtree(d)
+                dirs += [self.abspath(os.path.join(sub, iid)) for sub in ('originals', 'parts', 'masks', 'references')]
                 if im.get('display_path'):
-                    p = self.abspath(im['display_path'])
-                    if os.path.exists(p):
-                        os.remove(p)
-                undo_p = self._undo_path(iid)
-                if os.path.exists(undo_p):
-                    os.remove(undo_p)
-                self.data['images'] = [i for i in self.data['images'] if i['image_id'] != iid]
-            self.save()
+                    files.append(self.abspath(im['display_path']))
+                files.append(self._undo_path(iid))
+                deleted.append(iid)
+            if deleted:
+                gone = set(deleted)
+                self.data['images'] = [i for i in self.data['images'] if i['image_id'] not in gone]
+                self.save()
+        for d in dirs:
+            if os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)
+        for p in files:
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError:
+                pass
+        return deleted
 
     def visible_ids(self):
         return [i['image_id'] for i in self.data['images'] if not i.get('hidden')]
@@ -963,22 +978,48 @@ class Session:
             self.job = dict(running=True, done=0, total=len(image_ids), current=None, errors=[], started=now(),
                             finished=None)
 
+        def mark_error(iid, e):
+            text = str(e) if isinstance(e, (RuntimeError, ValueError)) and str(e) else repr(e)
+            self.job['errors'].append(dict(image_id=iid, error=text))
+            with self.lock:
+                im = next((i for i in self.data['images'] if i['image_id'] == iid), None)
+                if im is not None:          # the photo may have been deleted while the job ran
+                    im['processing'] = dict(status='error', time=now(), error=text)
+                    self.save()
+
         def work():
-            for iid in image_ids:
-                self.job['current'] = iid
+            try:
+                # Load the models first (the first Cellpose run downloads ~1 GB) so the page shows
+                # what is happening instead of a frozen "Detecting 0/N".
+                self.job['current'] = 'loading the detection model (the first run downloads it; this can take minutes)'
                 try:
-                    if detect_wells_first and not self.image(iid)['wells'] and not load_config()['profiles'][self.image(iid)['profile']]['params'].get('whole_image'):
-                        self.detect_wells(iid)
-                    self.process_image(iid, whole_region=whole_region)
-                except Exception as e:  # keep going; report per image
-                    self.job['errors'].append(dict(image_id=iid, error=repr(e)))
-                    with self.lock:
-                        self.image(iid)['processing'] = dict(status='error', time=now(), error=repr(e))
-                        self.save()
-                self.job['done'] += 1
-            self.job['running'] = False
-            self.job['current'] = None
-            self.job['finished'] = now()
+                    profiles = load_config()['profiles']
+                    names = {profiles[i['profile']]['segmenter'] for i in self.data['images'] if i['image_id'] in set(image_ids)}
+                    for n in sorted(names):
+                        get_segmenter(n).prepare()
+                except Exception as e:
+                    for iid in image_ids:
+                        mark_error(iid, e)
+                    self.job['done'] = len(image_ids)
+                    return
+                for iid in image_ids:
+                    self.job['current'] = iid
+                    try:
+                        if not any(i['image_id'] == iid for i in self.data['images']):
+                            continue        # deleted while the job was running
+                        if detect_wells_first and not self.image(iid)['wells'] and not load_config()['profiles'][self.image(iid)['profile']]['params'].get('whole_image'):
+                            self.detect_wells(iid)
+                        self.process_image(iid, whole_region=whole_region)
+                    except Exception as e:  # keep going; report per image
+                        mark_error(iid, e)
+                    finally:
+                        self.job['done'] += 1
+            except Exception as e:          # never leave the job stuck in 'running'
+                self.job['errors'].append(dict(image_id=None, error=repr(e)))
+            finally:
+                self.job['running'] = False
+                self.job['current'] = None
+                self.job['finished'] = now()
 
         t = threading.Thread(target=work, daemon=True)
         t.start()

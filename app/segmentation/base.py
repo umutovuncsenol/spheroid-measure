@@ -39,6 +39,9 @@ class SegmentationResult:
 class Segmenter:
     name = 'base'
 
+    def prepare(self):
+        """Load anything slow (model weights) before the first image. Default: nothing to do."""
+
     def segment(self, rgb: np.ndarray, region: np.ndarray, params: dict) -> SegmentationResult:
         """rgb: uint8 (H, W, 3) crop around one well. region: bool (H, W), True inside the well."""
         raise NotImplementedError

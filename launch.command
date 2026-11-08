@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-source "/Users/elifduman/miniforge3/etc/profile.d/conda.sh"
-conda activate sferoid
-cd "/Users/elifduman/Desktop/spheroid-measure"
-exec python -m app
+# Double-click on macOS to start the app. Works from wherever the project folder is.
+cd "$(dirname "$0")"
+exec bash launcher/launch.sh "$@"

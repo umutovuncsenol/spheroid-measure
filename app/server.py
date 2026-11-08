@@ -3,8 +3,10 @@ import os
 import re
 import tempfile
 import threading
+import traceback
 
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from werkzeug.exceptions import HTTPException
 
 from .export import export_session
 from .export_groups import export_groups
@@ -39,10 +41,25 @@ def create_app():
         return jsonify(x if x is not None else {'ok': True})
 
     @app.errorhandler(ValueError)
-    @app.errorhandler(KeyError)
     @app.errorhandler(RuntimeError)
     def bad(e):
         return jsonify(error=str(e)), 400
+
+    @app.errorhandler(KeyError)
+    def not_found(e):
+        # str(KeyError('IMG-0056')) is "'IMG-0056'", which tells the user nothing
+        what = e.args[0] if e.args else ''
+        if isinstance(what, str) and ' ' in what:      # a KeyError raised with a full sentence
+            return jsonify(error=what), 400
+        return jsonify(error=f'Not found: {what}. It may have been deleted - reload the page (F5).'), 404
+
+    @app.errorhandler(Exception)
+    def unexpected(e):
+        if isinstance(e, HTTPException):
+            return jsonify(error=e.description or e.name), e.code
+        traceback.print_exc()
+        return jsonify(error=f'Unexpected error ({type(e).__name__}: {e}). '
+                             'Details are printed in the terminal window that runs the app.'), 500
 
     @app.get('/')
     def index():
@@ -202,7 +219,10 @@ def create_app():
     def active_time(name, iid):
         # sent by the browser every 20 s of measured activity, and by sendBeacon when the tab is hidden
         j = request.get_json(force=True, silent=True) or {}
-        return ok(dict(active_review_s=get_session(name).add_active_time(iid, j.get('seconds', 0))))
+        try:
+            return ok(dict(active_review_s=get_session(name).add_active_time(iid, j.get('seconds', 0))))
+        except KeyError:   # the photo was deleted while its timer was still pending: nothing to record
+            return ok(dict(active_review_s=0))
 
     @app.get('/api/s/<name>/image/<iid>/effort')
     def effort(name, iid):
@@ -282,8 +302,8 @@ def create_app():
     @app.delete('/api/s/<name>/images')
     def delete_images(name):
         j = request.get_json(force=True)
-        get_session(name).delete_images(j['image_ids'])
-        return ok()
+        deleted = get_session(name).delete_images(j['image_ids'])
+        return ok(dict(deleted=deleted))
 
     @app.post('/api/s/<name>/image/<iid>/status_all')
     def status_all(name, iid):

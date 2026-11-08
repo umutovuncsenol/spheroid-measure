@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 set -e
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONDA_BASE="$HOME/miniforge3"
+CANDIDATES=("$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3" "/opt/homebrew/Caskroom/miniforge/base")
 
-if [ ! -d "$CONDA_BASE" ]; then
-  CONDA_BASE="$HOME/miniconda3"
+# Prefer the conda installation that actually has the 'sferoid' environment (a Mac can have
+# several conda installs; the first one found is not necessarily the one we installed into).
+CONDA_BASE=""
+for c in "${CANDIDATES[@]}"; do
+  if [ -d "$c/envs/sferoid" ] && [ -f "$c/etc/profile.d/conda.sh" ]; then CONDA_BASE="$c"; break; fi
+done
+if [ -z "$CONDA_BASE" ]; then
+  for c in "${CANDIDATES[@]}"; do
+    if [ -f "$c/etc/profile.d/conda.sh" ]; then CONDA_BASE="$c"; break; fi
+  done
 fi
-if [ ! -d "$CONDA_BASE" ]; then
-  CONDA_BASE="/opt/homebrew/Caskroom/miniforge/base"
+if [ -z "$CONDA_BASE" ]; then
+  echo "Conda bulunamadi. Once install.sh dosyasini calistirin."
+  read -r -p "Kapatmak icin Enter'a basin..." _
+  exit 1
 fi
 
 source "$CONDA_BASE/etc/profile.d/conda.sh"
@@ -21,8 +31,9 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
   REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "$LOCAL")
   if [ "$LOCAL" != "$REMOTE" ]; then
     echo "Güncelleme bulundu, indiriliyor..."
-    git pull origin main --quiet
-    if git diff HEAD@{1} HEAD -- environment.yml | grep -q .; then
+    if ! git pull origin main --quiet; then
+      echo "Güncelleme indirilemedi (yerel değişiklik ya da bağlantı sorunu). Mevcut sürümle devam ediliyor."
+    elif git diff HEAD@{1} HEAD -- environment.yml | grep -q .; then
       echo "Yeni bağımlılıklar kuruluyor..."
       conda env update -n sferoid -f "$APP_DIR/environment.yml" --prune --quiet
     fi
@@ -33,4 +44,12 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 conda activate sferoid
-exec python -m app "$@"
+set +e
+python -m app "$@"
+CODE=$?
+if [ $CODE -ne 0 ]; then
+  echo ""
+  echo "Uygulama bir hatayla kapandı (kod $CODE). Yukarıdaki mesajın ekran görüntüsünü alın."
+  read -r -p "Kapatmak için Enter'a basın..." _
+fi
+exit $CODE

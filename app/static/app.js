@@ -138,6 +138,7 @@ async function openSession(name) {
   if (!name) return;
   flushActive();
   st.session = name; st.imageId = null; st.detail = null; st.selected = null; st.phSel = new Set(); st.scaleLine = null; st.scaleDet = {};
+  act.pending = 0; act.image = null; msg('');   // no stale error from the previous session
   localStorage.setItem('lastSession', name);
   await refreshSummary();
   await go(autoStep());
@@ -298,13 +299,19 @@ $('#bApply').onclick = async () => {
 $('#bHide').onclick = async () => {
   const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
   await api('PUT', S('/hidden'), { image_ids: ids, hidden: true }); st.phSel = new Set();
+  if (ids.includes(st.imageId)) { act.pending = 0; act.image = null; st.imageId = null; st.detail = null; st.selected = null; st.img = null; }
   msg(`${ids.length} photo(s) hidden. Tick "show hidden" to restore them.`); refreshSummary();
 };
 $('#bDelete').onclick = async () => {
   const ids = [...st.phSel]; if (!ids.length) return msg('Select photos first (tick the boxes).', true);
   if (!confirm(`Permanently delete ${ids.length} photo(s)? This cannot be undone.`)) return;
-  await api('DELETE', S('/images'), { image_ids: ids }); st.phSel = new Set();
-  msg(`${ids.length} photo(s) deleted.`); refreshSummary();
+  const r = await api('DELETE', S('/images'), { image_ids: ids }); st.phSel = new Set();
+  if (ids.includes(st.imageId)) {   // the open photo is gone: forget it so no later request asks for it
+    act.pending = 0; act.image = null;
+    st.imageId = null; st.detail = null; st.selected = null; st.img = null; st.scaleLine = null;
+  }
+  const n = (r.deleted || ids).length;
+  msg(`${n} photo(s) deleted.`); refreshSummary();
 };
 
 // ---------------------------------------------------------------- 3 · scale
@@ -390,6 +397,7 @@ function renderDetect() {
     if (n && !confirm('Detect again on all photos? Unreviewed, unedited automatic objects are replaced; approved, rejected, edited and drawn objects are kept.')) return;
     await api('POST', S('/process_all'), { image_ids: v.map(i => i.image_id), whole_region: true }); pollJob();
   };
+  if (job.running && !st.polling) pollJob();   // page opened or reloaded while a job runs
   const nx = $('#detNext'); if (nx) nx.onclick = () => go('review');
   const ps = $('#detProfSet'); if (ps) ps.onclick = async () => {
     await api('PUT', S('/profile_many'), { image_ids: s.images.map(i => i.image_id), profile: $('#detProf').value }); msg('Model set for all photos.'); refreshSummary();
@@ -400,10 +408,32 @@ function renderDetect() {
     msg(p.status === 'processed' ? `Done: ${p.new_objects} new object(s)` : p.message || p.status, p.status !== 'processed'); refreshSummary();
   });
 }
+// Polls the background detection job. Started by "Detect all photos" and also whenever the page
+// (re)opens while a job is already running, so a reload never leaves a frozen "Detecting 0/N".
+// If the app process stops (e.g. it crashed), say so instead of showing a progress bar forever.
 async function pollJob() {
-  const j = await api('GET', S('/job'));
-  await refreshSummary();
-  if (j.running) setTimeout(pollJob, 1000); else msg(`Detection finished: ${j.done}/${j.total}${j.errors.length ? ', ' + j.errors.length + ' error(s)' : ''}`, j.errors.length > 0);
+  if (st.polling) return;
+  st.polling = true; let fails = 0;
+  try {
+    for (;;) {
+      let j;
+      try { j = await api0('GET', S('/job')); fails = 0; }
+      catch (e) {
+        if (++fails >= 5) {
+          msg('The app stopped responding. Look at the black terminal window for the error message, start the app again, then reload this page (F5).', true);
+          return;
+        }
+        await new Promise(r => setTimeout(r, 1000)); continue;
+      }
+      await refreshSummary().catch(() => {});
+      if (!j.running) {
+        const first = j.errors.length ? ` First error (${j.errors[0].image_id}): ${j.errors[0].error}` : '';
+        msg(`Detection finished: ${j.done}/${j.total}${j.errors.length ? ', ' + j.errors.length + ' error(s).' + first : ''}`, j.errors.length > 0);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  } finally { st.polling = false; }
 }
 
 // ---------------------------------------------------------------- view transform

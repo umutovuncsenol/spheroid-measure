@@ -6,6 +6,7 @@ The model is downloaded once from Hugging Face (umutovuncsenol/sferoid) and cach
 Override with the SPHEROID_MODEL environment variable (a local model file path).
 """
 import os
+import threading
 
 import numpy as np
 from PIL import Image
@@ -16,17 +17,45 @@ from .base import Segmenter, SegmentationResult
 HF_REPO = 'umutovuncsenol/sferoid'
 HF_FILE = 'spheroid_v2'
 _MODEL = {}
+_MODEL_LOCK = threading.Lock()
+
+
+def _download():
+    """Fetch the fine-tuned weights (about 1 GB, only on the first run) and turn every failure into
+    a message a lab user can act on, instead of a bare exception class name."""
+    try:
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.utils import HfHubHTTPError
+    except ImportError as e:
+        raise RuntimeError(f'huggingface_hub is not installed ({e}). Run the installer again.') from e
+    print(f'Loading the spheroid model from Hugging Face ({HF_REPO}). The first run downloads about 1 GB; '
+          'this can take several minutes on a slow connection...', flush=True)
+    try:
+        return hf_hub_download(repo_id=HF_REPO, filename=HF_FILE)
+    except HfHubHTTPError as e:
+        code = getattr(getattr(e, 'response', None), 'status_code', None)
+        if code in (401, 403, 404):
+            raise RuntimeError(
+                f'Could not download the model {HF_REPO}/{HF_FILE} (HTTP {code}). The model repository is '
+                'private or was renamed. Make it public on Hugging Face, or copy the model file to this '
+                'computer and start the app with the SPHEROID_MODEL environment variable set to its path.') from e
+        raise RuntimeError(f'Model download failed ({e}). Check the internet connection and try again.') from e
+    except OSError as e:   # no connection, proxy, disk full ...
+        raise RuntimeError(f'Model download failed ({e}). Check the internet connection and free disk space, '
+                           'then try again.') from e
 
 
 def _model():
-    if 'm' not in _MODEL:
-        from cellpose import models
-        path = os.environ.get('SPHEROID_MODEL')
-        if not path:
-            from huggingface_hub import hf_hub_download
-            path = hf_hub_download(repo_id=HF_REPO, filename=HF_FILE)
-        _MODEL['m'] = models.CellposeModel(gpu=True, pretrained_model=path)
-    return _MODEL['m']
+    with _MODEL_LOCK:      # the batch job and a single "Detect" click may ask at the same time
+        if 'm' not in _MODEL:
+            from cellpose import models
+            path = os.environ.get('SPHEROID_MODEL')
+            if path and not os.path.isfile(path):
+                raise RuntimeError(f'SPHEROID_MODEL points to a file that does not exist: {path}')
+            path = path or _download()
+            _MODEL['m'] = models.CellposeModel(gpu=True, pretrained_model=path)
+            print('Spheroid model loaded.', flush=True)
+        return _MODEL['m']
 
 
 def _merge(M, min_area, gap):
@@ -58,6 +87,9 @@ def _merge(M, min_area, gap):
 
 class CellposeSegmenter(Segmenter):
     name = 'cellpose'
+
+    def prepare(self):
+        _model()
 
     def segment(self, rgb, region, p):
         H, W = region.shape
