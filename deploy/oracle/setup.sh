@@ -67,6 +67,8 @@ read -r -p "Site address (Enter = $DEFAULT_SITE): " SITE
 SITE="${SITE:-$DEFAULT_SITE}"
 
 mkdir -p "$DATA_DIR/sessions" "$DATA_DIR/hf-cache"
+# the app runs as user 1000 inside the container; it must be able to write here
+sudo chown -R 1000:1000 "$DATA_DIR"
 umask 077
 # single quotes: docker compose then takes the password literally (no $ expansion)
 cat > "$ENV_FILE" <<EOF
